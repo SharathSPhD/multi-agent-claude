@@ -1,0 +1,135 @@
+// Advanced orchestration API service
+const API_BASE = 'http://localhost:8000';
+
+export interface WorkflowAnalysis {
+  recommended_workflow: string;
+  analysis: {
+    agent_count: number;
+    task_count: number;
+    has_dependencies: boolean;
+    user_objective: string;
+  };
+}
+
+export interface WorkflowPattern {
+  id: string;
+  name: string;
+  description: string;
+  workflow_type: string;
+  agents: string[];
+  tasks: string[];
+  dependencies: Record<string, string[]>;
+  parallel_groups: string[][];
+  max_iterations: number;
+}
+
+export interface WorkflowExecution {
+  id: string;
+  pattern_id: string;
+  status: string;
+  started_at: string;
+  updated_at: string;
+  current_step: number;
+  total_steps: number;
+  progress_percentage: number;
+  active_agents: string[];
+  completed_tasks: string[];
+  failed_tasks: string[];
+  agent_communications: AgentComm[];
+  step_outputs: Record<string, any>;
+  iteration_count: number;
+}
+
+export interface AgentComm {
+  id: string;
+  execution_id: string;
+  from_agent_id: string;
+  to_agent_id: string;
+  message: string;
+  message_type: string;
+  timestamp: string;
+  context: Record<string, any>;
+}
+
+export interface WorkflowTypes {
+  [key: string]: string;
+}
+
+class AdvancedOrchestrationService {
+  
+  async analyzeWorkflow(agentIds: string[], taskIds: string[], objective: string = ''): Promise<WorkflowAnalysis> {
+    const response = await fetch(`${API_BASE}/api/workflows/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        agents_ids: agentIds,
+        task_ids: taskIds,
+        user_objective: objective,
+      }),
+    });
+    
+    if (!response.ok) throw new Error('Failed to analyze workflow');
+    return response.json();
+  }
+
+  async createWorkflowPattern(data: {
+    name: string;
+    description: string;
+    agent_ids: string[];
+    task_ids: string[];
+    user_objective?: string;
+    workflow_type?: string;
+  }): Promise<WorkflowPattern> {
+    const response = await fetch(`${API_BASE}/api/workflows/patterns`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    
+    if (!response.ok) throw new Error('Failed to create workflow pattern');
+    return response.json();
+  }
+
+  async getWorkflowPatterns(): Promise<WorkflowPattern[]> {
+    const response = await fetch(`${API_BASE}/api/workflows/patterns`);
+    if (!response.ok) throw new Error('Failed to fetch workflow patterns');
+    return response.json();
+  }
+
+  async executeWorkflow(patternId: string, context: Record<string, any> = {}): Promise<WorkflowExecution> {
+    const response = await fetch(`${API_BASE}/api/workflows/execute/${patternId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(context),
+    });
+    
+    if (!response.ok) throw new Error('Failed to execute workflow');
+    return response.json();
+  }
+
+  async getExecutionStatus(executionId: string): Promise<WorkflowExecution> {
+    const response = await fetch(`${API_BASE}/api/workflows/executions/${executionId}`);
+    if (!response.ok) throw new Error('Failed to get execution status');
+    return response.json();
+  }
+
+  async getActiveExecutions(): Promise<WorkflowExecution[]> {
+    const response = await fetch(`${API_BASE}/api/workflows/executions`);
+    if (!response.ok) throw new Error('Failed to get active executions');
+    return response.json();
+  }
+
+  async getAgentCommunications(executionId: string): Promise<AgentComm[]> {
+    const response = await fetch(`${API_BASE}/api/workflows/communications/${executionId}`);
+    if (!response.ok) throw new Error('Failed to get agent communications');
+    return response.json();
+  }
+
+  async getWorkflowTypes(): Promise<WorkflowTypes> {
+    const response = await fetch(`${API_BASE}/api/workflows/types`);
+    if (!response.ok) throw new Error('Failed to get workflow types');
+    return response.json();
+  }
+}
+
+export const advancedOrchestrationService = new AdvancedOrchestrationService();

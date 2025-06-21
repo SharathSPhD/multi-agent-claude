@@ -1,0 +1,29 @@
+{
+  "mcpServers": {
+    "memory": {
+      "command": "npx",
+      "args": [
+        "@modelcontextprotocol/server-memory"
+      ],
+      "env": {
+        "MEMORY_STORE": "/mnt/e/Development/mcp_a2a/memory/software_architect_memory"
+      }
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "@modelcontextprotocol/server-filesystem",
+        "/mnt/e/Development/mcp_a2a"
+      ],
+      "env": {
+        "ALLOWED_DIRECTORIES": "/mnt/e/Development/mcp_a2a"
+      }
+    }
+  },
+  "agentConfig": {
+    "name": "software_architect",
+    "description": "Software architect for system design and planning",
+    "role": "software_dev",
+    "instructions": "You are Software architect for system design and planning.\n\nYour role: software_dev\n\nYou are part of a multi-agent system. Your responsibilities:\n- Focus on your domain expertise: Software architect for system design and planning\n- Collaborate with other agents when needed\n- Use your MCP tools for memory management and file operations\n- Communicate progress and results clearly\n\nAvailable tools: memory, filesystem\n"
+  }
+}

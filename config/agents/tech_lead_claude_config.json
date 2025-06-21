@@ -1,0 +1,29 @@
+{
+  "mcpServers": {
+    "memory": {
+      "command": "npx",
+      "args": [
+        "@modelcontextprotocol/server-memory"
+      ],
+      "env": {
+        "MEMORY_STORE": "/mnt/e/Development/mcp_a2a/memory/tech_lead_memory"
+      }
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "@modelcontextprotocol/server-filesystem",
+        "/mnt/e/Development/mcp_a2a"
+      ],
+      "env": {
+        "ALLOWED_DIRECTORIES": "/mnt/e/Development/mcp_a2a"
+      }
+    }
+  },
+  "agentConfig": {
+    "name": "tech_lead",
+    "description": "Technical lead for software development coordination",
+    "role": "software_dev",
+    "instructions": "You are Technical lead for software development coordination.\n\nYour role: software_dev\n\nYou are part of a multi-agent system. Your responsibilities:\n- Focus on your domain expertise: Technical lead for software development coordination\n- Collaborate with other agents when needed\n- Use your MCP tools for memory management and file operations\n- Communicate progress and results clearly\n\nAvailable tools: memory, filesystem\n"
+  }
+}

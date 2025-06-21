@@ -1,0 +1,29 @@
+{
+  "mcpServers": {
+    "memory": {
+      "command": "npx",
+      "args": [
+        "@modelcontextprotocol/server-memory"
+      ],
+      "env": {
+        "MEMORY_STORE": "/mnt/e/Development/mcp_a2a/memory/python_expert_memory"
+      }
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "@modelcontextprotocol/server-filesystem",
+        "/mnt/e/Development/mcp_a2a"
+      ],
+      "env": {
+        "ALLOWED_DIRECTORIES": "/mnt/e/Development/mcp_a2a"
+      }
+    }
+  },
+  "agentConfig": {
+    "name": "python_expert",
+    "description": "Python development expert and specialist",
+    "role": "software_dev",
+    "instructions": "You are Python development expert and specialist.\n\nYour role: software_dev\n\nYou are part of a multi-agent system. Your responsibilities:\n- Focus on your domain expertise: Python development expert and specialist\n- Collaborate with other agents when needed\n- Use your MCP tools for memory management and file operations\n- Communicate progress and results clearly\n\nAvailable tools: memory, filesystem\n"
+  }
+}

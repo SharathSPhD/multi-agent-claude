@@ -1,0 +1,121 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcp-a2a-multiagent"
+version = "0.1.0"
+description = "Multi-Agent System with mcp-agent, A2A protocol, and MCP integration"
+authors = [
+    {name = "MCP A2A Project", email = "project@example.com"}
+]
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+keywords = ["mcp", "a2a", "multi-agent", "ai", "orchestration"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "mcp-agent>=0.1.0",
+    "fastapi>=0.104.0",
+    "uvicorn>=0.24.0",
+    "aiohttp>=3.9.0",
+    "websockets>=12.0",
+    "pydantic>=2.5.0",
+    "python-dotenv>=1.0.0",
+    "asyncio-mqtt>=0.16.0",
+    "httpx>=0.25.0",
+    "jsonrpcclient>=4.0.0",
+    "jsonrpcserver>=5.0.0",
+    "redis>=5.0.0",
+    "structlog>=23.2.0",
+    "click>=8.1.0",
+    "rich>=13.7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-mock>=3.12.0",
+    "black>=23.11.0",
+    "isort>=5.12.0",
+    "mypy>=1.7.0",
+]
+llm = [
+    "openai>=1.3.0",
+    "anthropic>=0.8.0",
+    "google-generativeai>=0.3.0",
+]
+temporal = [
+    "temporalio>=1.4.0",
+]
+vector = [
+    "chromadb>=0.4.0",
+    "faiss-cpu>=1.7.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/your-org/mcp-a2a-multiagent"
+Documentation = "https://github.com/your-org/mcp-a2a-multiagent#readme"
+Repository = "https://github.com/your-org/mcp-a2a-multiagent.git"
+Issues = "https://github.com/your-org/mcp-a2a-multiagent/issues"
+
+[project.scripts]
+mcp-a2a = "mcp_a2a.cli:main"
+mcp-a2a-orchestrator = "mcp_a2a.orchestrator.main:main"
+mcp-a2a-agent = "mcp_a2a.agents.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mcp_a2a*"]
+
+[tool.black]
+line-length = 88
+target-version = ["py39", "py310", "py311", "py312"]
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+known_first_party = ["mcp_a2a"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "--verbose --tb=short"
+asyncio_mode = "auto"
