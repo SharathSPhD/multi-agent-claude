@@ -4,7 +4,7 @@ Database models for dynamic multi-agent system.
 
 from datetime import datetime
 from typing import Dict, List, Optional, Any
-from sqlalchemy import Column, String, Text, DateTime, JSON, ForeignKey, Enum
+from sqlalchemy import Column, String, Text, DateTime, JSON, ForeignKey, Enum, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 import uuid
@@ -128,6 +128,9 @@ class Execution(Base):
     logs = Column(JSON, default=list)  # Execution logs and messages
     output = Column(JSON, default=dict)  # Execution output/results
     error_details = Column(JSON, default=dict)  # Error information
+    agent_response = Column(JSON, default=dict)  # Structured agent response from Claude Code
+    work_directory = Column(String(500))  # Working directory for execution
+    needs_interaction = Column(Boolean, default=False)  # Whether agent needs user input
     
     # Performance metrics
     duration_seconds = Column(String(50))

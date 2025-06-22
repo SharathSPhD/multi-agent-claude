@@ -46,6 +46,17 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
+# Health check endpoint
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+
+@app.get("/")
+async def root():
+    """Root endpoint"""
+    return {"message": "MCP Multi-Agent System API", "version": "2.0.0", "status": "running"}
+
 # Service Classes
 class AgentManager:
     """Manages agent lifecycle and operations."""
@@ -606,6 +617,16 @@ async def get_execution_details(execution_id: str, db: Session = Depends(get_db)
     if not execution:
         raise HTTPException(status_code=404, detail="Execution not found")
     return execution
+
+
+@app.post("/api/execution/{execution_id}/cancel")
+async def cancel_execution(execution_id: str, db: Session = Depends(get_db)):
+    """Cancel a running execution."""
+    try:
+        result = await execution_engine.cancel_execution(db, execution_id)
+        return {"message": f"Execution {execution_id} cancelled", "success": True}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # Dashboard and System Status Endpoints

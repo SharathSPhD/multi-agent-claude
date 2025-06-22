@@ -142,6 +142,9 @@ class ExecutionResponse(BaseModel):
     duration_seconds: Optional[str]
     memory_usage: Dict[str, Any]
     api_calls_made: List[Dict[str, Any]]
+    agent_response: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    work_directory: Optional[str] = None
+    needs_interaction: Optional[bool] = False
     
     class Config:
         from_attributes = True
@@ -229,6 +232,7 @@ class TaskExecutionRequest(BaseModel):
     task_id: str
     agent_ids: Optional[List[str]] = None  # If None, use task's assigned agents
     force_restart: bool = False
+    work_directory: Optional[str] = None  # User-configurable working directory for Claude Code execution
 
 
 class TaskExecutionResponse(BaseModel):

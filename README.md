@@ -1,20 +1,21 @@
 # MCP Multi-Agent Orchestration Platform v2.0
 
-A sophisticated multi-agent orchestration platform that combines the **LastMile mcp-agent framework** for advanced workflow patterns with **MCP (Model Context Protocol)** for tool integration, memory management, and dynamic web-based coordination.
+A sophisticated multi-agent orchestration platform that combines the **LastMile mcp-agent framework** with **Claude Code SDK integration** for autonomous agent execution, real-time monitoring, and dynamic web-based coordination.
 
 ## 🎯 Overview
 
-This platform evolved from v1.0 (static CLI) to v2.0 (dynamic web platform) enabling real-time multi-agent orchestration with 7 advanced workflow patterns, web-based management interface, and intelligent task delegation.
+This platform evolved from v1.0 (static CLI) to v2.0 (production-ready web platform) enabling real-time multi-agent orchestration with Claude Code non-interactive execution, advanced workflow patterns, web-based management interface, and intelligent task delegation.
 
 ### Key Features v2.0
 
+- **Claude Code SDK Integration**: Non-interactive execution with robust error handling and multi-turn conversation support
 - **Advanced Orchestration Engine**: 7 workflow patterns (Orchestrator, Parallel, Router, Evaluator-Optimizer, Swarm, Sequential, Adaptive)
-- **Dynamic Web Platform**: FastAPI backend + React frontend with real-time monitoring
-- **Intelligent Workflow Analysis**: AI-powered workflow pattern recommendation based on agents, tasks, and objectives
-- **Real-time Monitoring**: WebSocket-based agent communication tracking and execution monitoring
+- **Dynamic Web Platform**: FastAPI backend + React frontend with real-time monitoring and agent observation windows
+- **Intelligent Agent Execution**: Claude Code spawning with working directories, response mirroring, and interaction detection
+- **Real-time Monitoring**: WebSocket-based agent communication tracking and execution monitoring with individual agent windows
 - **Web-based Agent Management**: Complete CRUD interface for agent creation, configuration, and management
 - **Asynchronous Execution**: Advanced async/await patterns with parallel and sequential coordination
-- **Production Ready**: Full-stack application with database persistence and error handling
+- **Production Ready**: Full-stack application with database persistence, error handling, and comprehensive testing
 
 ## 🚀 Quick Start v2.0
 

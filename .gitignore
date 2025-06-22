@@ -142,5 +142,8 @@ coverage.xml
 dist/
 build/
 .pypirc
+.claude
 
 SYSTEM_STATUS_V2.md
+
+claude_sdk_test/

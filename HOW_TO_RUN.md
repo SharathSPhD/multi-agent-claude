@@ -1,251 +1,351 @@
 # 🚀 How to Run MCP Multi-Agent Orchestration Platform v2.0
 
-## Quick Start (5 Minutes) - Advanced Orchestration Ready
+## Quick Start (5 Minutes) - Claude Code Integration Ready
 
 ### Prerequisites
 - Python 3.10+
-- Node.js 18+ (optional, for frontend)
+- Node.js 18+ (for React frontend)
+- Virtual environment (.venv)
+- Claude Code SDK
 
 ### 1. Clone and Setup
 ```bash
 cd /mnt/e/Development/mcp_a2a
-source .venv/bin/activate  # or create: python -m venv .venv
+source .venv/bin/activate  # or create: python3 -m venv .venv
 ```
 
 ### 2. Install Dependencies
 ```bash
-# If dependencies not installed:
-pip install fastapi uvicorn sqlalchemy pydantic websockets
+# Install all backend dependencies including Claude Code SDK
+pip install -r requirements.txt
+
+# Install frontend dependencies (if using web interface)
+cd frontend && npm install && cd ..
 ```
 
 ### 3. Start the System
 ```bash
-# Option A: Use the launcher (starts everything)
-python launch_system.py
+# Option A: Use the integrated launcher (recommended - starts everything + tests)
+python3 launch_system.py
 
-# Option B: Just the backend API
+# Option B: Backend only for API usage
 cd backend
 python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ### 4. Verify It's Running
 ```bash
+# Check system health
+curl http://localhost:8000/health
+
+# Check API status
 curl http://localhost:8000/api/dashboard/status
+
+# Access web interface (if frontend started)
+open http://localhost:3000
 ```
 
-### 5. Try the Quick Start Demo
-```bash
-python quick_start.py
-```
+### 5. Run Automatic System Test
+The launcher automatically runs a comprehensive test after 30 seconds including:
+- Agent creation
+- Task creation  
+- Claude Code execution
+- Response processing
+- Database persistence
 
-## 🎯 Advanced Orchestration Capabilities
+## 🎯 Claude Code Integration Capabilities
 
-### Create Your Own Agents
+### Create Agents with Claude Code Execution
 ```python
 import requests
 
-# Create a custom agent
+# Create a Claude Code-enabled agent
 agent_data = {
-    "name": "my_ai_assistant",
-    "role": "AI Assistant", 
-    "description": "Helpful AI that can do anything",
-    "system_prompt": "You are a helpful AI assistant...",
-    "capabilities": ["reasoning", "coding", "analysis", "writing"],
-    "tools": ["python", "web_search", "calculator"],
-    "objectives": ["help users", "solve problems", "be accurate"],
-    "constraints": ["be helpful", "be honest", "be safe"],
-    "memory_settings": {"max_memories": 1000, "retention_days": 30},
-    "execution_settings": {"max_concurrent_tasks": 3, "timeout_minutes": 15}
+    "name": "Data Analyst",
+    "role": "Senior Data Analyst", 
+    "capabilities": ["data_analysis", "visualization", "python_coding"],
+    "objectives": ["analyze patterns", "create insights", "generate reports"],
+    "constraints": ["verify data quality", "document methodology"],
+    "system_prompt": "You are a senior data analyst. Always provide structured analysis with actionable insights and save results to files."
 }
 
 response = requests.post("http://localhost:8000/api/agents", json=agent_data)
 agent = response.json()
-print(f"Created agent: {agent['id']}")
+print(f"Created Claude Code agent: {agent['id']}")
 ```
 
-### Create and Execute Tasks
+### Execute Tasks with Working Directories
 ```python
-# Create a task
+# Create a task with Claude Code execution
 task_data = {
-    "title": "Analyze Website Performance", 
-    "description": "Review website metrics and provide optimization recommendations",
-    "assigned_agent_ids": [agent['id']],
-    "priority": "high",
-    "estimated_duration": "30 minutes"
+    "title": "Website Performance Analysis", 
+    "description": "Analyze website metrics, identify bottlenecks, and provide optimization recommendations. Create charts and export findings to CSV.",
+    "expected_output": "Performance analysis report with visualizations and actionable recommendations"
 }
 
 response = requests.post("http://localhost:8000/api/tasks", json=task_data)
 task = response.json()
 
-# Execute the task
-execution_data = {"task_id": task['id'], "agent_ids": [agent['id']]}
-response = requests.post("http://localhost:8000/api/tasks/execute", json=execution_data)
+# Execute with Claude Code (non-interactive)
+execution_data = {
+    "task_id": task['id'], 
+    "agent_ids": [agent['id']],
+    "work_directory": "./analysis_workspace"  # Agent gets dedicated workspace
+}
+
+response = requests.post("http://localhost:8000/api/execution/execute", json=execution_data)
 execution = response.json()
-print(f"Started execution: {execution['execution_id']}")
+print(f"Started Claude Code execution: {execution['execution_id']}")
 ```
 
-### Monitor System Status
+### Monitor Claude Code Execution in Real-time
 ```python
-# Get system overview
-response = requests.get("http://localhost:8000/api/dashboard/status")
-status = response.json()
-print(f"Active agents: {status['active_agents']}/{status['total_agents']}")
+# Check execution status and agent response
+import time
 
-# Get detailed agent status
-response = requests.get("http://localhost:8000/api/dashboard/agents") 
-agents = response.json()
-for agent in agents:
-    print(f"{agent['name']}: {agent['status']}")
+execution_id = execution['execution_id']
+for i in range(12):  # Check for 1 minute
+    response = requests.get(f"http://localhost:8000/api/execution/{execution_id}")
+    status = response.json()
+    
+    print(f"Status: {status['status']}")
+    
+    if status['status'] in ['completed', 'failed']:
+        agent_response = status.get('agent_response', {})
+        print(f"Analysis: {agent_response.get('analysis', 'N/A')}")
+        print(f"Results: {agent_response.get('results', 'N/A')}")
+        print(f"Output files: {agent_response.get('output_files', [])}")
+        print(f"Work directory: {status.get('work_directory', 'N/A')}")
+        break
+    
+    time.sleep(5)
 ```
 
 ## 🌐 API Endpoints Reference
 
-### Agents
+### System Health
+- `GET /health` - System health check
+- `GET /` - Root endpoint with system info
+
+### Agents (Claude Code Enabled)
 - `GET /api/agents` - List all agents
-- `POST /api/agents` - Create new agent
+- `POST /api/agents` - Create new Claude Code agent
 - `GET /api/agents/{id}` - Get specific agent
 - `PUT /api/agents/{id}` - Update agent
 - `DELETE /api/agents/{id}` - Delete agent
 
-### Tasks  
+### Tasks & Claude Code Execution
 - `GET /api/tasks` - List all tasks
 - `POST /api/tasks` - Create new task
 - `GET /api/tasks/{id}` - Get specific task
-- `POST /api/tasks/execute` - Execute task with agents
+- `POST /api/execution/execute` - Execute task with Claude Code
+- `GET /api/execution/{id}` - Get execution status and results
+- `GET /api/execution/status` - List all executions
 
 ### System Monitoring
-- `GET /api/dashboard/status` - System metrics
+- `GET /api/dashboard/status` - System metrics and Claude Code status
 - `GET /api/dashboard/agents` - Agent status details
-- `GET /api/executions/{id}` - Execution details
 
-### WebSocket
-- `WS /ws/updates` - Real-time system updates
+### WebSocket Real-time Updates
+- `WS /ws/updates` - Real-time execution updates and agent responses
 
-## 🔧 Configuration Options
+## 🔧 Claude Code Configuration
 
-### Agent Configuration
-Each agent can be customized with:
-- **Name & Role**: Unique identifier and role description
-- **Capabilities**: List of what the agent can do
-- **Tools**: Available tools/integrations  
-- **Objectives**: Primary goals and purposes
-- **Constraints**: Limitations and guidelines
-- **Memory Settings**: How much to remember and for how long
-- **Execution Settings**: Concurrency and timeout limits
+### Agent Response Structure
+Claude Code agents provide structured responses:
+```json
+{
+  "analysis": "Detailed analysis of the task",
+  "approach": "Methodology and tools used",
+  "implementation": "Step-by-step work performed",
+  "results": "Key findings and conclusions",
+  "recommendations": "Actionable next steps",
+  "status": "completed|needs_user_input|error",
+  "needs_interaction": false,
+  "output_files": ["analysis.csv", "report.md", "chart.png"]
+}
+```
 
-### Task Configuration  
-Tasks support:
-- **Title & Description**: What needs to be done
-- **Priority**: low, medium, high, urgent
-- **Agent Assignment**: Which agents should work on it
-- **Dependencies**: Prerequisites that must be completed first
-- **Resources**: Required tools, data, or access
-- **Deadlines**: When it should be completed
-- **Expected Output**: What the result should look like
+### Working Directory Management
+Each Claude Code execution gets:
+- **Unique workspace**: `./execution_{execution_id}` or custom directory
+- **Context file**: `CLAUDE.md` with agent profile and task details
+- **Output persistence**: All created files are preserved and tracked
+- **File detection**: Automatic detection of agent-created files
+
+### Execution Settings
+```python
+# Configure Claude Code execution
+ClaudeCodeOptions(
+    max_turns=3,                          # Multi-turn conversation support
+    cwd=work_directory,                   # User-configurable working directory
+    permission_mode="bypassPermissions", # Non-interactive execution
+    system_prompt="Agent-specific instructions with role and constraints"
+)
+```
 
 ## 🚀 Advanced Usage
 
-### Multi-Agent Collaboration
+### Multi-Agent Claude Code Workflows
 ```python
-# Create task that requires multiple agents
-task_data = {
-    "title": "Full Stack Feature Development",
-    "description": "Design, develop, and test a new user dashboard feature",
-    "assigned_agent_ids": [designer_id, developer_id, qa_id],
-    "priority": "urgent"
-}
+# Create specialized agents for different aspects
+data_agent = create_agent("Data Collector", "Collect and clean data")
+analysis_agent = create_agent("Data Analyst", "Analyze patterns and trends")  
+viz_agent = create_agent("Visualization Expert", "Create charts and dashboards")
 
-# The system will automatically:
-# 1. Have primary agent create execution plan
-# 2. Distribute subtasks to collaborating agents  
-# 3. Coordinate execution and results
-# 4. Provide real-time status updates
+# Execute sequential workflow
+tasks = [
+    {"title": "Data Collection", "agent": data_agent, "output": "clean_data.csv"},
+    {"title": "Statistical Analysis", "agent": analysis_agent, "input": "clean_data.csv"},
+    {"title": "Dashboard Creation", "agent": viz_agent, "input": "analysis_results.json"}
+]
+
+# System handles file passing between agents via working directories
 ```
 
-### Real-Time Monitoring with WebSocket
-```javascript
-const ws = new WebSocket('ws://localhost:8000/ws/updates');
-ws.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    console.log('System update:', data);
-    // Handle real-time updates: agent_created, task_started, execution_completed
-};
-```
+### Agent Observation Windows (Frontend)
+The React frontend provides real-time monitoring:
+- **Live execution status**: See agent progress in real-time
+- **Response mirroring**: Display agent outputs as they're generated
+- **Working directory browser**: Explore files created by agents
+- **Interaction detection**: Get notified if agent needs user input
+- **Error monitoring**: Real-time error tracking and resolution
 
-### Frontend Integration
-The system is designed to work with any frontend framework:
-```javascript
-// React example
-const createAgent = async (agentData) => {
-    const response = await fetch('http://localhost:8000/api/agents', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(agentData)
-    });
-    return response.json();
-};
+### Error Handling & Recovery
+Claude Code integration includes robust error handling:
+```python
+# System handles common issues automatically:
+# - JSON parsing errors from truncated messages
+# - Network timeouts and retries
+# - Partial response recovery
+# - Graceful fallback to expert analysis
 ```
 
 ## 🛠️ Development & Deployment
 
 ### Development Mode
 ```bash
-# Backend with auto-reload
+# Backend with auto-reload and Claude Code integration
 cd backend
+source ../.venv/bin/activate
 python -m uvicorn main:app --reload --port 8000
 
-# Frontend (if building one)
+# Frontend with hot reload (separate terminal)
 cd frontend  
 npm run dev
 ```
 
 ### Production Deployment
 ```bash
-# Docker deployment
-docker build -t mcp-multiagent .
-docker run -p 8000:8000 mcp-multiagent
+# Ensure Claude Code SDK is available
+source .venv/bin/activate
+python -c "from claude_code_sdk import query; print('Claude Code SDK ready')"
 
-# Or with docker-compose
-docker-compose up -d
+# Start production system
+python3 launch_system.py
 ```
 
 ### Environment Variables
 ```bash
+export ANTHROPIC_API_KEY="your-claude-api-key"
 export DATABASE_URL="postgresql://user:pass@localhost/mcp_multiagent"
-export REDIS_URL="redis://localhost:6379"
 export CORS_ORIGINS="http://localhost:3000,https://yourapp.com"
 ```
 
 ## 📊 Performance & Scaling
 
-### Current Performance
+### Current Performance (with Claude Code)
 - **Agent Creation**: ~200ms
 - **Task Creation**: ~150ms  
-- **Task Execution Start**: ~300-500ms
-- **API Response**: <500ms
+- **Claude Code Execution Start**: ~500ms-1s
+- **Multi-turn Conversation**: 30-60s depending on complexity
+- **Response Processing**: ~100ms
 - **Real-time Updates**: Instant via WebSocket
 
-### Scaling Options
-- **Database**: SQLite (dev) → PostgreSQL (production)
-- **Caching**: Redis for session/task caching
-- **Load Balancing**: Multiple backend instances
-- **Monitoring**: Prometheus + Grafana integration
+### Claude Code Optimization
+- **Error Recovery**: Graceful handling of SDK JSON parsing issues
+- **Partial Results**: Continue execution even with incomplete responses
+- **Working Directory Isolation**: Each execution gets clean workspace
+- **Resource Management**: Automatic cleanup of temporary files
+
+## 🧪 Testing & Validation
+
+### Automatic System Test
+The launch system includes comprehensive testing:
+```bash
+# Run full system test including Claude Code
+python3 launch_system.py
+# Wait 30 seconds for automatic test or press Ctrl+C to skip
+
+# Manual testing
+curl -X POST http://localhost:8000/api/agents -H "Content-Type: application/json" \
+  -d '{"name":"Test Agent","role":"Tester","capabilities":["testing"],"objectives":["validate"],"constraints":["be thorough"]}'
+```
+
+### Claude Code Integration Test
+```python
+# Test Claude Code SDK directly
+from claude_code_sdk import query, ClaudeCodeOptions
+
+async def test_claude_code():
+    messages = []
+    async for message in query(
+        prompt="What is 2+2? Respond with just the number.",
+        options=ClaudeCodeOptions(
+            max_turns=1,
+            permission_mode="bypassPermissions"
+        )
+    ):
+        messages.append(message)
+    return len(messages) > 0
+```
 
 ## 📚 Full Documentation
 
 - **API Documentation**: http://localhost:8000/docs (when running)
-- **WebSocket Events**: Real-time system updates
-- **Database Schema**: See `backend/models.py`
-- **Configuration Examples**: See `quick_start.py`
+- **Claude Code SDK**: https://docs.anthropic.com/en/docs/claude-code
+- **WebSocket Events**: Real-time agent execution updates
+- **Database Schema**: See `backend/models.py` with execution tracking
+- **Configuration Examples**: Agent and task creation patterns
+
+## 🔧 Troubleshooting
+
+### Common Issues
+
+1. **Claude Code SDK not found**: Ensure `pip install claude-code-sdk` and virtual environment is activated
+2. **Permission errors**: Use `permission_mode="bypassPermissions"` for non-interactive execution
+3. **JSON parsing errors**: System handles these gracefully - check execution logs for details
+4. **Frontend not connecting**: Verify CORS settings include your IP address
+5. **Database schema errors**: Run migration or recreate database with updated models
+
+### Debug Commands
+```bash
+# Test Claude Code SDK
+source .venv/bin/activate
+python3 -c "from claude_code_sdk import query, ClaudeCodeOptions; print('SDK OK')"
+
+# Check system health
+curl http://localhost:8000/health
+
+# View execution logs
+curl http://localhost:8000/api/execution/status
+
+# Test agent creation
+curl -X POST http://localhost:8000/api/agents \
+  -H "Content-Type: application/json" \
+  -d '{"name":"test","role":"Test","capabilities":[],"objectives":[],"constraints":[]}'
+```
 
 ## 🎉 You're Ready!
 
-The system is now fully operational. You can:
-1. ✅ Create unlimited custom agents
-2. ✅ Define complex tasks with dependencies  
-3. ✅ Execute single or multi-agent workflows
-4. ✅ Monitor everything in real-time
-5. ✅ Integrate with any frontend framework
-6. ✅ Deploy to production
+The Claude Code-integrated system is now fully operational. You can:
 
-Start with `python quick_start.py` to see it in action!
+1. ✅ Create unlimited Claude Code-enabled agents
+2. ✅ Execute complex tasks with non-interactive Claude Code
+3. ✅ Monitor real-time execution with observation windows  
+4. ✅ Handle multi-turn conversations with error recovery
+5. ✅ Manage working directories and output files
+6. ✅ Integrate with frontend applications
+7. ✅ Deploy to production with comprehensive testing
+
+Start with `python3 launch_system.py` to see the complete Claude Code integration in action!

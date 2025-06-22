@@ -48,6 +48,9 @@ click>=8.0.0
 pyyaml>=6.0
 pathlib-mate>=1.0.0
 
+# Claude Code Integration
+claude-code-sdk
+
 # Node.js dependencies for MCP servers (install via npm)
 # @modelcontextprotocol/server-memory
 # @modelcontextprotocol/server-filesystem

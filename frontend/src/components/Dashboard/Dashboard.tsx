@@ -9,35 +9,134 @@ import {
   StatHelpText,
   Card,
   CardBody,
+  CardHeader,
   Text,
   Badge,
   VStack,
   HStack,
+  Button,
+  Progress,
+  Alert,
+  AlertIcon,
+  AlertTitle,
+  AlertDescription,
+  Accordion,
+  AccordionItem,
+  AccordionButton,
+  AccordionPanel,
+  AccordionIcon,
+  useToast,
+  Flex,
+  Divider,
 } from '@chakra-ui/react';
+import { FiPlay, FiPause, FiClock, FiActivity, FiAlertCircle } from 'react-icons/fi';
 import { apiService, Agent, Task } from '../../services/api';
+
+interface Execution {
+  id: string;
+  task_id: string;
+  agent_id: string;
+  status: string;
+  start_time: string;
+  end_time?: string;
+  logs: Array<{timestamp: string, message: string, level: string, agent_status?: string, needs_interaction?: boolean}>;
+  output: Record<string, any>;
+  duration_seconds?: string;
+  work_directory?: string;
+  needs_interaction?: boolean;
+  agent_response?: Record<string, any>;
+}
+
+interface WorkflowExecution {
+  id: string;
+  pattern_id: string;
+  status: string;
+  started_at: string;
+  progress_percentage: number;
+  current_step?: string;
+}
 
 export default function Dashboard() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [executions, setExecutions] = useState<Execution[]>([]);
+  const [workflowExecutions, setWorkflowExecutions] = useState<WorkflowExecution[]>([]);
   const [loading, setLoading] = useState(true);
+  const toast = useToast();
+
+  const cancelExecution = async (executionId: string) => {
+    try {
+      const response = await fetch(`http://localhost:8000/api/execution/${executionId}/cancel`, {
+        method: 'POST',
+      });
+      
+      if (response.ok) {
+        toast({
+          title: 'Execution cancelled',
+          status: 'success',
+          duration: 3000,
+        });
+        // Refresh data immediately
+        setTimeout(() => {
+          fetchData();
+        }, 1000);
+      } else {
+        throw new Error('Failed to cancel execution');
+      }
+    } catch (error) {
+      toast({
+        title: 'Failed to cancel execution',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        status: 'error',
+        duration: 3000,
+      });
+    }
+  };
+
+  const fetchData = async () => {
+    try {
+      console.log('Dashboard: Fetching data...');
+      const [agentsData, tasksData] = await Promise.all([
+        apiService.getAgents(),
+        apiService.getTasks(),
+      ]);
+      
+      // Fetch executions
+      try {
+        const executionsResponse = await fetch('http://localhost:8000/api/execution/status');
+        const executionsData = executionsResponse.ok ? await executionsResponse.json() : [];
+        setExecutions(executionsData);
+      } catch (e) {
+        console.warn('Failed to fetch executions:', e);
+        setExecutions([]);
+      }
+      
+      // Fetch workflow executions
+      try {
+        const workflowResponse = await fetch('http://localhost:8000/api/workflows/executions');
+        const workflowData = workflowResponse.ok ? await workflowResponse.json() : [];
+        setWorkflowExecutions(workflowData);
+      } catch (e) {
+        console.warn('Failed to fetch workflow executions:', e);
+        setWorkflowExecutions([]);
+      }
+      
+      console.log('Dashboard: Data fetched successfully', { 
+        agents: agentsData.length, 
+        tasks: tasksData.length,
+        executions: executions.length,
+        workflows: workflowExecutions.length 
+      });
+      setAgents(agentsData);
+      setTasks(tasksData);
+    } catch (error) {
+      console.error('Dashboard: Failed to fetch data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        console.log('Dashboard: Fetching data...');
-        const [agentsData, tasksData] = await Promise.all([
-          apiService.getAgents(),
-          apiService.getTasks(),
-        ]);
-        console.log('Dashboard: Data fetched successfully', { agents: agentsData.length, tasks: tasksData.length });
-        setAgents(agentsData);
-        setTasks(tasksData);
-      } catch (error) {
-        console.error('Dashboard: Failed to fetch data:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
 
     fetchData();
     // Refresh every 5 seconds
@@ -160,6 +259,260 @@ export default function Dashboard() {
           </CardBody>
         </Card>
       </SimpleGrid>
+
+      {/* Active Executions Monitoring */}
+      {executions.length > 0 && (
+        <Card mt={6}>
+          <CardHeader>
+            <HStack>
+              <FiActivity />
+              <Heading size="md">Active Executions</Heading>
+              <Badge colorScheme="orange">{executions.length}</Badge>
+            </HStack>
+          </CardHeader>
+          <CardBody>
+            <VStack spacing={4} align="stretch">
+              {executions.map(execution => {
+                const agent = agents.find(a => a.id === execution.agent_id);
+                const task = tasks.find(t => t.id === execution.task_id);
+                const isStuck = execution.logs.length <= 1 && 
+                  new Date(execution.start_time).getTime() < Date.now() - 5 * 60 * 1000; // 5 minutes
+                
+                return (
+                  <Card key={execution.id} variant="outline" borderColor={isStuck ? "red.200" : "blue.200"}>
+                    <CardBody>
+                      <VStack align="stretch" spacing={3}>
+                        <HStack justify="space-between">
+                          <VStack align="start" spacing={0}>
+                            <Text fontWeight="bold">
+                              {agent?.name || 'Unknown Agent'} → {task?.title?.substring(0, 30) || 'Unknown Task'}...
+                            </Text>
+                            <Text fontSize="sm" color="gray.600">
+                              Started: {new Date(execution.start_time).toLocaleTimeString()}
+                            </Text>
+                          </VStack>
+                          <HStack>
+                            <Badge colorScheme={execution.status === 'running' ? 'green' : 'gray'}>
+                              {execution.status}
+                            </Badge>
+                            {isStuck && (
+                              <Badge colorScheme="red" leftIcon={<FiAlertCircle />}>
+                                Stuck
+                              </Badge>
+                            )}
+                            {(execution.status === 'running' || execution.status === 'starting') && (
+                              <Button
+                                size="xs"
+                                colorScheme="red"
+                                leftIcon={<FiPause />}
+                                onClick={() => cancelExecution(execution.id)}
+                              >
+                                Cancel
+                              </Button>
+                            )}
+                          </HStack>
+                        </HStack>
+                        
+                        {isStuck && (
+                          <Alert status="warning" size="sm">
+                            <AlertIcon />
+                            <AlertDescription>
+                              Execution appears stuck. Running for {Math.round((Date.now() - new Date(execution.start_time).getTime()) / 60000)} minutes with minimal progress.
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                        
+                        {/* Agent Observation Window */}
+                        <Card bg="gray.50" variant="filled">
+                          <CardHeader py={2}>
+                            <HStack justify="space-between">
+                              <Text fontSize="sm" fontWeight="bold">
+                                🔍 Agent Observation Window - {agent?.name || 'Unknown Agent'}
+                              </Text>
+                              {execution.needs_interaction && (
+                                <Badge colorScheme="yellow" leftIcon={<FiAlertCircle />}>
+                                  Needs Input
+                                </Badge>
+                              )}
+                            </HStack>
+                          </CardHeader>
+                          <CardBody py={2}>
+                            <Accordion allowToggle>
+                              <AccordionItem>
+                                <AccordionButton>
+                                  <Box flex="1" textAlign="left">
+                                    <Text fontSize="sm">Agent Response & Analysis</Text>
+                                  </Box>
+                                  <AccordionIcon />
+                                </AccordionButton>
+                                <AccordionPanel pb={4}>
+                                  {execution.agent_response && (
+                                    <VStack align="stretch" spacing={3}>
+                                      <Box>
+                                        <Text fontSize="xs" fontWeight="bold" color="purple.600">Analysis:</Text>
+                                        <Text fontSize="xs" bg="purple.50" p={2} borderRadius="md">
+                                          {execution.agent_response.analysis || 'No analysis available'}
+                                        </Text>
+                                      </Box>
+                                      <Box>
+                                        <Text fontSize="xs" fontWeight="bold" color="blue.600">Approach:</Text>
+                                        <Text fontSize="xs" bg="blue.50" p={2} borderRadius="md">
+                                          {execution.agent_response.approach || 'No approach details'}
+                                        </Text>
+                                      </Box>
+                                      <Box>
+                                        <Text fontSize="xs" fontWeight="bold" color="green.600">Implementation:</Text>
+                                        <Text fontSize="xs" bg="green.50" p={2} borderRadius="md" maxH="150px" overflowY="auto">
+                                          {execution.agent_response.implementation || 'No implementation details'}
+                                        </Text>
+                                      </Box>
+                                      <Box>
+                                        <Text fontSize="xs" fontWeight="bold" color="orange.600">Results:</Text>
+                                        <Text fontSize="xs" bg="orange.50" p={2} borderRadius="md">
+                                          {execution.agent_response.results || 'No results available'}
+                                        </Text>
+                                      </Box>
+                                      {execution.agent_response.recommendations && (
+                                        <Box>
+                                          <Text fontSize="xs" fontWeight="bold" color="red.600">Recommendations:</Text>
+                                          <Text fontSize="xs" bg="red.50" p={2} borderRadius="md">
+                                            {execution.agent_response.recommendations}
+                                          </Text>
+                                        </Box>
+                                      )}
+                                      {execution.work_directory && (
+                                        <Box>
+                                          <Text fontSize="xs" fontWeight="bold" color="gray.600">Work Directory:</Text>
+                                          <Text fontSize="xs" bg="gray.100" p={1} borderRadius="md" fontFamily="mono">
+                                            {execution.work_directory}
+                                          </Text>
+                                        </Box>
+                                      )}
+                                    </VStack>
+                                  )}
+                                  {!execution.agent_response && (
+                                    <Text fontSize="xs" color="gray.500" textAlign="center" py={4}>
+                                      No agent response available yet
+                                    </Text>
+                                  )}
+                                </AccordionPanel>
+                              </AccordionItem>
+                              
+                              <AccordionItem>
+                                <AccordionButton>
+                                  <Box flex="1" textAlign="left">
+                                    <Text fontSize="sm">Execution Logs ({execution.logs.length} entries)</Text>
+                                  </Box>
+                                  <AccordionIcon />
+                                </AccordionButton>
+                                <AccordionPanel pb={4}>
+                                  <VStack align="stretch" spacing={1} maxH="200px" overflowY="auto">
+                                    {execution.logs.map((log, idx) => (
+                                      <Box key={idx} fontSize="xs" p={1} borderRadius="sm" bg={log.level === 'error' ? 'red.50' : 'gray.50'}>
+                                        <HStack spacing={2}>
+                                          <Badge size="xs" colorScheme={log.level === 'error' ? 'red' : log.level === 'warning' ? 'yellow' : 'blue'}>
+                                            {log.level}
+                                          </Badge>
+                                          <Text fontSize="xs" color="gray.500">
+                                            {new Date(log.timestamp).toLocaleTimeString()}
+                                          </Text>
+                                          {log.needs_interaction && (
+                                            <Badge size="xs" colorScheme="yellow">
+                                              Needs Input
+                                            </Badge>
+                                          )}
+                                        </HStack>
+                                        <Text fontSize="xs" fontFamily="mono" mt={1}>
+                                          {log.message}
+                                        </Text>
+                                      </Box>
+                                    ))}
+                                  </VStack>
+                                </AccordionPanel>
+                              </AccordionItem>
+                            </Accordion>
+                          </CardBody>
+                        </Card>
+                        
+                        {Object.keys(execution.output).length > 0 && (
+                          <Box>
+                            <Text fontSize="sm" fontWeight="bold" mb={2}>Output:</Text>
+                            <Text fontSize="xs" fontFamily="mono" bg="gray.50" p={2} borderRadius="md">
+                              {JSON.stringify(execution.output, null, 2)}
+                            </Text>
+                          </Box>
+                        )}
+                      </VStack>
+                    </CardBody>
+                  </Card>
+                );
+              })}
+            </VStack>
+          </CardBody>
+        </Card>
+      )}
+
+      {/* Workflow Executions */}
+      {workflowExecutions.length > 0 && (
+        <Card mt={6}>
+          <CardHeader>
+            <HStack>
+              <FiPlay />
+              <Heading size="md">Active Workflows</Heading>
+              <Badge colorScheme="purple">{workflowExecutions.length}</Badge>
+            </HStack>
+          </CardHeader>
+          <CardBody>
+            <VStack spacing={4} align="stretch">
+              {workflowExecutions.map(workflow => (
+                <Card key={workflow.id} variant="outline" borderColor="purple.200">
+                  <CardBody>
+                    <VStack align="stretch" spacing={3}>
+                      <HStack justify="space-between">
+                        <VStack align="start" spacing={0}>
+                          <Text fontWeight="bold">Workflow Execution</Text>
+                          <Text fontSize="sm" color="gray.600">
+                            ID: {workflow.id.substring(0, 8)}...
+                          </Text>
+                        </VStack>
+                        <Badge colorScheme="purple">{workflow.status}</Badge>
+                      </HStack>
+                      
+                      <Box>
+                        <HStack justify="space-between" mb={2}>
+                          <Text fontSize="sm">Progress</Text>
+                          <Text fontSize="sm">{workflow.progress_percentage.toFixed(1)}%</Text>
+                        </HStack>
+                        <Progress value={workflow.progress_percentage} colorScheme="purple" />
+                      </Box>
+                      
+                      {workflow.current_step && (
+                        <Text fontSize="sm">
+                          <strong>Current Step:</strong> {workflow.current_step}
+                        </Text>
+                      )}
+                    </VStack>
+                  </CardBody>
+                </Card>
+              ))}
+            </VStack>
+          </CardBody>
+        </Card>
+      )}
+
+      {/* Warning for stuck executions */}
+      {executions.some(e => e.logs.length <= 1 && new Date(e.start_time).getTime() < Date.now() - 5 * 60 * 1000) && (
+        <Alert status="warning" mt={6}>
+          <AlertIcon />
+          <Box>
+            <AlertTitle>Stuck Executions Detected!</AlertTitle>
+            <AlertDescription>
+              Some executions appear to be stuck. This indicates the execution engine may not be properly spawning Claude Code instances.
+              Consider restarting the backend or checking the execution engine implementation.
+            </AlertDescription>
+          </Box>
+        </Alert>
+      )}
     </Box>
   );
 }
