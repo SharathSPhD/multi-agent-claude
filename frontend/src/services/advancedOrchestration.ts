@@ -1,5 +1,13 @@
 // Advanced orchestration API service
-const API_BASE = 'http://localhost:8000';
+// Dynamic API base to work with both localhost and WSL IP
+const API_BASE = (() => {
+  if (typeof window !== 'undefined') {
+    // Use the same hostname as the frontend, but port 8000
+    const { protocol, hostname } = window.location;
+    return `${protocol}//${hostname}:8000`;
+  }
+  return 'http://localhost:8000'; // Fallback for SSR
+})();
 
 export interface WorkflowAnalysis {
   recommended_workflow: string;

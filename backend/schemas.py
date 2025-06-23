@@ -131,17 +131,17 @@ class TaskResponse(BaseModel):
 # Execution Schemas
 class ExecutionResponse(BaseModel):
     id: str
-    task_id: str
-    agent_id: str
+    task_id: Optional[str]
+    agent_id: Optional[str]
     status: str
     start_time: datetime
     end_time: Optional[datetime]
-    logs: List[Dict[str, Any]]
-    output: Dict[str, Any]
-    error_details: Dict[str, Any]
+    logs: List[Dict[str, Any]] = Field(default_factory=list)
+    output: Dict[str, Any] = Field(default_factory=dict)
+    error_details: Dict[str, Any] = Field(default_factory=dict)
     duration_seconds: Optional[str]
-    memory_usage: Dict[str, Any]
-    api_calls_made: List[Dict[str, Any]]
+    memory_usage: Dict[str, Any] = Field(default_factory=dict)
+    api_calls_made: List[Dict[str, Any]] = Field(default_factory=list)
     agent_response: Optional[Dict[str, Any]] = Field(default_factory=dict)
     work_directory: Optional[str] = None
     needs_interaction: Optional[bool] = False

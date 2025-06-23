@@ -1,5 +1,5 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
-import { Agent, CreateAgentData, AgentStatus } from '../../types/api';
+import { Agent, CreateAgentData, AgentStatus, AgentUpdate } from '../../types/api';
 import { apiService } from '../../services/api';
 
 interface AgentsState {
@@ -35,8 +35,8 @@ const initialState: AgentsState = {
 // Async thunks
 export const fetchAgents = createAsyncThunk(
   'agents/fetchAgents',
-  async (params?: { skip?: number; limit?: number }) => {
-    const response = await agentsApi.getAgents(params?.skip, params?.limit);
+  async () => {
+    const response = await apiService.getAgents();
     return response;
   }
 );
@@ -44,15 +44,15 @@ export const fetchAgents = createAsyncThunk(
 export const fetchAgent = createAsyncThunk(
   'agents/fetchAgent',
   async (agentId: string) => {
-    const response = await agentsApi.getAgent(agentId);
+    const response = await apiService.getAgent(agentId);
     return response;
   }
 );
 
 export const createAgent = createAsyncThunk(
   'agents/createAgent',
-  async (agentData: AgentCreate) => {
-    const response = await agentsApi.createAgent(agentData);
+  async (agentData: CreateAgentData) => {
+    const response = await apiService.createAgent(agentData);
     return response;
   }
 );
@@ -60,7 +60,7 @@ export const createAgent = createAsyncThunk(
 export const updateAgent = createAsyncThunk(
   'agents/updateAgent',
   async ({ id, updates }: { id: string; updates: AgentUpdate }) => {
-    const response = await agentsApi.updateAgent(id, updates);
+    const response = await apiService.updateAgent(id, updates);
     return response;
   }
 );
@@ -68,7 +68,7 @@ export const updateAgent = createAsyncThunk(
 export const deleteAgent = createAsyncThunk(
   'agents/deleteAgent',
   async (agentId: string) => {
-    await agentsApi.deleteAgent(agentId);
+    await apiService.deleteAgent(agentId);
     return agentId;
   }
 );
@@ -77,7 +77,7 @@ export const startAgent = createAsyncThunk(
   'agents/startAgent',
   async (agentId: string) => {
     // Update agent status to executing
-    const response = await agentsApi.updateAgent(agentId, { status: AgentStatus.EXECUTING });
+    const response = await apiService.updateAgent(agentId, { status: 'executing' });
     return response;
   }
 );
@@ -86,7 +86,7 @@ export const stopAgent = createAsyncThunk(
   'agents/stopAgent',
   async (agentId: string) => {
     // Update agent status to idle
-    const response = await agentsApi.updateAgent(agentId, { status: AgentStatus.IDLE });
+    const response = await apiService.updateAgent(agentId, { status: 'idle' });
     return response;
   }
 );
@@ -95,7 +95,7 @@ const agentsSlice = createSlice({
   name: 'agents',
   initialState,
   reducers: {
-    setSelectedAgent: (state, action: PayloadAction<AgentResponse | null>) => {
+    setSelectedAgent: (state, action: PayloadAction<Agent | null>) => {
       state.selectedAgent = action.payload;
     },
     setFilters: (state, action: PayloadAction<Partial<AgentsState['filters']>>) => {
@@ -281,7 +281,7 @@ export const selectFilteredAgents = (state: { agents: AgentsState }) => {
 
 // Active agents selector
 export const selectActiveAgents = (state: { agents: AgentsState }) => {
-  return state.agents.agents.filter(agent => agent.status === AgentStatus.EXECUTING);
+  return state.agents.agents.filter(agent => agent.status === 'executing');
 };
 
 // Agent by ID selector

@@ -28,7 +28,7 @@ import {
   Select
 } from '@chakra-ui/react';
 import { AddIcon } from '@chakra-ui/icons';
-import { Agent, CreateAgentData } from '../../types/api';
+import { Agent, CreateAgentData, AgentUpdate } from '../../types/api';
 import { useAppDispatch } from '../../store/hooks';
 import { createAgent, updateAgent } from '../../store/slices/agentsSlice';
 

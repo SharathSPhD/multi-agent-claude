@@ -26,7 +26,7 @@ import {
   IconButton,
   Flex,
 } from '@chakra-ui/react';
-import { FiPlus, FiPlay, FiCheckSquare } from 'react-icons/fi';
+import { FiPlus, FiPlay, FiCheckSquare, FiTrash2 } from 'react-icons/fi';
 import { apiService, Agent, Task, CreateTaskData } from '../../services/api';
 
 export default function TaskManager() {
@@ -92,7 +92,7 @@ export default function TaskManager() {
       setFormData({
         title: '',
         description: '',
-        agent_id: '',
+        assigned_agent_ids: [],
       });
       onClose();
       fetchData();
@@ -125,6 +125,54 @@ export default function TaskManager() {
     }
   };
 
+  const deleteTask = async (taskId: string, taskTitle: string) => {
+    if (!window.confirm(`Are you sure you want to delete task "${taskTitle}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      await apiService.deleteTask(taskId);
+      toast({
+        title: 'Task deleted successfully',
+        status: 'success',
+        duration: 3000,
+      });
+      fetchData();
+    } catch (error) {
+      toast({
+        title: 'Error deleting task',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        status: 'error',
+        duration: 3000,
+      });
+    }
+  };
+
+  const deleteAllTasks = async () => {
+    if (!window.confirm(`Are you sure you want to delete ALL ${tasks.length} tasks? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      // Delete all tasks one by one
+      await Promise.all(tasks.map(task => apiService.deleteTask(task.id)));
+      toast({
+        title: `Successfully deleted ${tasks.length} tasks`,
+        status: 'success',
+        duration: 3000,
+      });
+      fetchData();
+    } catch (error) {
+      toast({
+        title: 'Error deleting tasks',
+        description: error instanceof Error ? error.message : 'Some tasks may not have been deleted',
+        status: 'error',
+        duration: 3000,
+      });
+      fetchData(); // Refresh to show current state
+    }
+  };
+
   const getAgentName = (agentId: string) => {
     const agent = agents.find(a => a.id === agentId);
     return agent ? agent.name : 'Unknown Agent';
@@ -147,14 +195,26 @@ export default function TaskManager() {
     <Box>
       <Flex justify="space-between" align="center" mb={6}>
         <Heading>Task Management</Heading>
-        <Button 
-          leftIcon={<FiPlus />} 
-          colorScheme="blue" 
-          onClick={onOpen}
-          isDisabled={agents.length === 0}
-        >
-          Create Task
-        </Button>
+        <HStack spacing={3}>
+          {tasks.length > 0 && (
+            <Button 
+              leftIcon={<FiTrash2 />} 
+              colorScheme="red" 
+              variant="outline"
+              onClick={() => deleteAllTasks()}
+            >
+              Delete All Tasks
+            </Button>
+          )}
+          <Button 
+            leftIcon={<FiPlus />} 
+            colorScheme="blue" 
+            onClick={onOpen}
+            isDisabled={agents.length === 0}
+          >
+            Create Task
+          </Button>
+        </HStack>
       </Flex>
 
       {agents.length === 0 && (
@@ -191,22 +251,39 @@ export default function TaskManager() {
                     <Badge colorScheme={getStatusColor(task.status)}>
                       {task.status}
                     </Badge>
-                    {task.status === 'pending' && (
+                    <HStack spacing={1}>
+                      {task.status === 'pending' && (
+                        <IconButton
+                          aria-label="Execute task"
+                          icon={<FiPlay />}
+                          size="sm"
+                          colorScheme="green"
+                          variant="ghost"
+                          onClick={() => handleExecute(task.id)}
+                        />
+                      )}
                       <IconButton
-                        aria-label="Execute task"
-                        icon={<FiPlay />}
+                        aria-label="Delete task"
+                        icon={<FiTrash2 />}
                         size="sm"
-                        colorScheme="green"
+                        colorScheme="red"
                         variant="ghost"
-                        onClick={() => handleExecute(task.id)}
+                        onClick={() => deleteTask(task.id, task.title)}
                       />
-                    )}
+                    </HStack>
                   </HStack>
                   
                   <Box>
                     <Text fontWeight="bold" fontSize="lg">{task.title}</Text>
                     <Text color="gray.600" fontSize="sm">
-                      Assigned to: {getAgentName(task.agent_id)}
+                      Assigned to: {(() => {
+                        if (task.assigned_agent_ids && Array.isArray(task.assigned_agent_ids) && task.assigned_agent_ids.length > 0) {
+                          return getAgentName(task.assigned_agent_ids[0]);
+                        } else if (task.assigned_agents && Array.isArray(task.assigned_agents) && task.assigned_agents.length > 0) {
+                          return task.assigned_agents[0].name;
+                        }
+                        return 'None';
+                      })()}
                     </Text>
                   </Box>
                   
@@ -258,8 +335,8 @@ export default function TaskManager() {
                 <FormControl isRequired>
                   <FormLabel>Assign to Agent</FormLabel>
                   <Select
-                    value={formData.agent_id}
-                    onChange={(e) => setFormData(prev => ({ ...prev, agent_id: e.target.value }))}
+                    value={formData.assigned_agent_ids?.[0] || ''}
+                    onChange={(e) => setFormData(prev => ({ ...prev, assigned_agent_ids: e.target.value ? [e.target.value] : [] }))}
                     placeholder="Select an agent"
                   >
                     {agents.map(agent => (

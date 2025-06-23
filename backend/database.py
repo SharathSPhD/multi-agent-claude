@@ -28,8 +28,8 @@ engine = create_engine(
 # Create SessionLocal class
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Create Base class for models
-Base = declarative_base()
+# Import Base from models to ensure consistency
+# Base = declarative_base()  # Removed - use models.Base instead
 
 
 def get_db() -> Generator[Session, None, None]:

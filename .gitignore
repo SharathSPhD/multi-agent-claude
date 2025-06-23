@@ -145,5 +145,11 @@ build/
 .claude
 
 SYSTEM_STATUS_V2.md
+COMPREHENSIVE*.md
+FINAL_PRO*.md
+FRONTEND*.md
+*_REPORT.md
+
 
 claude_sdk_test/
+CLAUDE.md

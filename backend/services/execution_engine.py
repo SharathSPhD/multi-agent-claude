@@ -24,6 +24,7 @@ class ExecutionEngine:
     
     def __init__(self):
         self.running_executions: Dict[str, asyncio.Task] = {}
+        self.paused_executions: Dict[str, Dict[str, Any]] = {}  # execution_id -> state
         self.agent_instances: Dict[str, Any] = {}  # Placeholder for agent instances
         self.websocket_manager = None  # Will be injected
         
@@ -265,6 +266,166 @@ class ExecutionEngine:
         
         return {"status": "cancelled", "execution_id": execution_id}
     
+    async def pause_execution(self, db: Session, execution_id: str):
+        """Pause a running execution."""
+        execution = db.query(Execution).filter(Execution.id == execution_id).first()
+        if not execution:
+            raise ValueError(f"Execution {execution_id} not found")
+        
+        if execution.status != "running":
+            raise ValueError(f"Cannot pause execution with status: {execution.status}")
+        
+        # Store execution state
+        self.paused_executions[execution_id] = {
+            "task_id": execution.task_id,
+            "agent_id": execution.agent_id,
+            "logs": execution.logs.copy(),
+            "output": execution.output.copy(),
+            "agent_response": execution.agent_response.copy() if execution.agent_response else {},
+            "pause_time": datetime.utcnow()
+        }
+        
+        # Cancel the running task
+        if execution_id in self.running_executions:
+            task = self.running_executions[execution_id]
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            del self.running_executions[execution_id]
+        
+        # Update execution status
+        execution.status = "paused"
+        execution.logs.append({
+            "timestamp": datetime.utcnow().isoformat(),
+            "message": "Execution paused by user",
+            "level": "info"
+        })
+        
+        # Update agent status
+        agent = db.query(Agent).filter(Agent.id == execution.agent_id).first()
+        if agent:
+            agent.status = AgentStatus.IDLE
+        
+        db.commit()
+        
+        # Broadcast pause event
+        if self.websocket_manager:
+            await self.websocket_manager.broadcast({
+                "type": "execution_paused",
+                "execution_id": execution_id,
+                "message": "Execution paused by user",
+                "timestamp": datetime.utcnow().isoformat()
+            })
+        
+        return {"status": "paused", "execution_id": execution_id}
+    
+    async def resume_execution(self, db: Session, execution_id: str):
+        """Resume a paused execution."""
+        execution = db.query(Execution).filter(Execution.id == execution_id).first()
+        if not execution:
+            raise ValueError(f"Execution {execution_id} not found")
+        
+        if execution.status != "paused":
+            raise ValueError(f"Cannot resume execution with status: {execution.status}")
+        
+        if execution_id not in self.paused_executions:
+            raise ValueError(f"No paused state found for execution {execution_id}")
+        
+        # Get paused state
+        paused_state = self.paused_executions[execution_id]
+        
+        # Update execution status
+        execution.status = "running"
+        execution.logs.append({
+            "timestamp": datetime.utcnow().isoformat(),
+            "message": "Execution resumed by user",
+            "level": "info"
+        })
+        
+        # Update agent status
+        agent = db.query(Agent).filter(Agent.id == execution.agent_id).first()
+        if agent:
+            agent.status = AgentStatus.EXECUTING
+        
+        db.commit()
+        
+        # Remove from paused executions
+        del self.paused_executions[execution_id]
+        
+        # Create new execution task
+        task = db.query(Task).filter(Task.id == execution.task_id).first()
+        execution_task = asyncio.create_task(self._execute_task(agent, task, execution, db))
+        self.running_executions[execution_id] = execution_task
+        
+        # Broadcast resume event
+        if self.websocket_manager:
+            await self.websocket_manager.broadcast({
+                "type": "execution_resumed",
+                "execution_id": execution_id,
+                "message": "Execution resumed by user",
+                "timestamp": datetime.utcnow().isoformat()
+            })
+        
+        return {"status": "resumed", "execution_id": execution_id}
+    
+    async def abort_execution(self, db: Session, execution_id: str):
+        """Abort an execution (cannot be resumed)."""
+        execution = db.query(Execution).filter(Execution.id == execution_id).first()
+        if not execution:
+            raise ValueError(f"Execution {execution_id} not found")
+        
+        if execution.status not in ["running", "paused", "starting"]:
+            raise ValueError(f"Cannot abort execution with status: {execution.status}")
+        
+        # Cancel the asyncio task if running
+        if execution_id in self.running_executions:
+            task = self.running_executions[execution_id]
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            del self.running_executions[execution_id]
+        
+        # Remove from paused executions if exists
+        if execution_id in self.paused_executions:
+            del self.paused_executions[execution_id]
+        
+        # Update execution status
+        execution.status = "aborted"
+        execution.end_time = datetime.utcnow()
+        execution.logs.append({
+            "timestamp": datetime.utcnow().isoformat(),
+            "message": "Execution aborted by user",
+            "level": "warning"
+        })
+        
+        # Update task status
+        task = db.query(Task).filter(Task.id == execution.task_id).first()
+        if task:
+            task.status = TaskStatus.FAILED
+            task.error_message = "Execution aborted by user"
+        
+        # Update agent status
+        agent = db.query(Agent).filter(Agent.id == execution.agent_id).first()
+        if agent:
+            agent.status = AgentStatus.IDLE
+        
+        db.commit()
+        
+        # Broadcast abort event
+        if self.websocket_manager:
+            await self.websocket_manager.broadcast({
+                "type": "execution_aborted",
+                "execution_id": execution_id,
+                "message": "Execution aborted by user",
+                "timestamp": datetime.utcnow().isoformat()
+            })
+        
+        return {"status": "aborted", "execution_id": execution_id}
+    
     async def _spawn_claude_code_agent(self, agent: Agent, task: Task, execution: Execution, db: Session, work_dir: str = None) -> Dict[str, Any]:
         """Spawn Claude Code instance using Python SDK for non-interactive execution."""
         import os
@@ -353,19 +514,26 @@ Work within your capabilities and provide expert-level output. Respond with ONLY
                     prompt=task_prompt,
                     options=ClaudeCodeOptions(
                         max_turns=3,  # Reduce turns to avoid SDK JSON issues
-                        cwd=work_path,
+                        cwd=str(work_path),
                         permission_mode="bypassPermissions",  # Critical for non-interactive
-                        system_prompt=f"You are {agent.name}, a {agent.role}. Be concise and direct in responses. " + agent.system_prompt
+                        system_prompt=f"You are {agent.name}, a {agent.role}. " + agent.system_prompt
                     )
                 ):
                     messages.append(message)
                     msg_type = type(message).__name__
                     
-                    # Collect AssistantMessage content for final response extraction
+                    # Handle different message types properly
                     if msg_type == "AssistantMessage" and hasattr(message, 'content'):
-                        assistant_messages.append(message.content)
+                        if message.content:
+                            for block in message.content:
+                                # Handle text blocks
+                                if hasattr(block, 'text'):
+                                    assistant_messages.append(block.text)
+                                # Handle tool use blocks  
+                                elif hasattr(block, 'input'):
+                                    assistant_messages.append(str(block.input))
                     
-                    # Log progress
+                    # Log progress with proper message type handling
                     execution.logs.append({
                         "timestamp": datetime.utcnow().isoformat(),
                         "message": f"Received {msg_type} from Claude Code SDK",
@@ -387,25 +555,10 @@ Work within your capabilities and provide expert-level output. Respond with ONLY
                 if not messages:
                     raise sdk_error  # Re-raise if no messages received
             
-            # Extract final response from AssistantMessages (handle both text and tool use)
+            # Extract final response from AssistantMessages (already properly processed)
             if assistant_messages:
-                # Try to get response from any assistant message
-                for content in reversed(assistant_messages):  # Start with latest
-                    if content:
-                        for block in content:
-                            # Handle text blocks
-                            if hasattr(block, 'text') and block.text:
-                                final_response = block.text
-                                break
-                            # Handle tool use blocks (Claude Code often uses tools)
-                            elif hasattr(block, 'input') and isinstance(block.input, dict):
-                                # Extract structured data from tool input
-                                tool_data = block.input
-                                if 'analysis' in str(tool_data) or 'response' in str(tool_data):
-                                    final_response = json.dumps(tool_data, indent=2)
-                                    break
-                        if final_response:
-                            break
+                # Combine all assistant messages
+                final_response = "\n\n".join(str(msg) for msg in assistant_messages if msg)
             
             # Log completion
             execution.logs.append({

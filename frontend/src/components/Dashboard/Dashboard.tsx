@@ -29,8 +29,17 @@ import {
   Flex,
   Divider,
 } from '@chakra-ui/react';
-import { FiPlay, FiPause, FiClock, FiActivity, FiAlertCircle } from 'react-icons/fi';
+import { FiPlay, FiPause, FiClock, FiActivity, FiAlertCircle, FiTrash2, FiSkipForward, FiX } from 'react-icons/fi';
 import { apiService, Agent, Task } from '../../services/api';
+
+// Dynamic API base to work with both localhost and WSL IP
+const getApiBase = () => {
+  if (typeof window !== 'undefined') {
+    const { protocol, hostname } = window.location;
+    return `${protocol}//${hostname}:8000`;
+  }
+  return 'http://localhost:8000';
+};
 
 interface Execution {
   id: string;
@@ -66,7 +75,7 @@ export default function Dashboard() {
 
   const cancelExecution = async (executionId: string) => {
     try {
-      const response = await fetch(`http://localhost:8000/api/execution/${executionId}/cancel`, {
+      const response = await fetch(`${getApiBase()}/api/execution/${executionId}/cancel`, {
         method: 'POST',
       });
       
@@ -76,7 +85,6 @@ export default function Dashboard() {
           status: 'success',
           duration: 3000,
         });
-        // Refresh data immediately
         setTimeout(() => {
           fetchData();
         }, 1000);
@@ -86,6 +94,130 @@ export default function Dashboard() {
     } catch (error) {
       toast({
         title: 'Failed to cancel execution',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        status: 'error',
+        duration: 3000,
+      });
+    }
+  };
+
+  const pauseExecution = async (executionId: string) => {
+    try {
+      const response = await fetch(`${getApiBase()}/api/execution/${executionId}/pause`, {
+        method: 'POST',
+      });
+      
+      if (response.ok) {
+        toast({
+          title: 'Execution paused',
+          status: 'info',
+          duration: 3000,
+        });
+        setTimeout(() => {
+          fetchData();
+        }, 1000);
+      } else {
+        throw new Error('Failed to pause execution');
+      }
+    } catch (error) {
+      toast({
+        title: 'Failed to pause execution',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        status: 'error',
+        duration: 3000,
+      });
+    }
+  };
+
+  const resumeExecution = async (executionId: string) => {
+    try {
+      const response = await fetch(`${getApiBase()}/api/execution/${executionId}/resume`, {
+        method: 'POST',
+      });
+      
+      if (response.ok) {
+        toast({
+          title: 'Execution resumed',
+          status: 'success',
+          duration: 3000,
+        });
+        setTimeout(() => {
+          fetchData();
+        }, 1000);
+      } else {
+        throw new Error('Failed to resume execution');
+      }
+    } catch (error) {
+      toast({
+        title: 'Failed to resume execution',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        status: 'error',
+        duration: 3000,
+      });
+    }
+  };
+
+  const abortExecution = async (executionId: string) => {
+    try {
+      const response = await fetch(`${getApiBase()}/api/execution/${executionId}/abort`, {
+        method: 'POST',
+      });
+      
+      if (response.ok) {
+        toast({
+          title: 'Execution aborted',
+          status: 'warning',
+          duration: 3000,
+        });
+        setTimeout(() => {
+          fetchData();
+        }, 1000);
+      } else {
+        throw new Error('Failed to abort execution');
+      }
+    } catch (error) {
+      toast({
+        title: 'Failed to abort execution',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        status: 'error',
+        duration: 3000,
+      });
+    }
+  };
+
+  const deleteAgent = async (agentId: string, agentName: string, force: boolean = false) => {
+    try {
+      const response = await fetch(`${getApiBase()}/api/agents/${agentId}?force=${force}`, {
+        method: 'DELETE',
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        toast({
+          title: 'Agent deleted',
+          description: `${agentName} deleted successfully. ${result.affected_tasks || 0} tasks affected.`,
+          status: 'success',
+          duration: 5000,
+        });
+        setTimeout(() => {
+          fetchData();
+        }, 1000);
+      } else {
+        const error = await response.json();
+        if (error.running_executions && !force) {
+          toast({
+            title: 'Cannot delete agent',
+            description: `Agent has ${error.running_executions} running executions. Cancel them first or use force delete.`,
+            status: 'warning',
+            duration: 5000,
+          });
+        } else {
+          throw new Error(error.detail || 'Failed to delete agent');
+        }
+      }
+    } catch (error) {
+      toast({
+        title: 'Failed to delete agent',
         description: error instanceof Error ? error.message : 'Unknown error',
         status: 'error',
         duration: 3000,
@@ -103,7 +235,7 @@ export default function Dashboard() {
       
       // Fetch executions
       try {
-        const executionsResponse = await fetch('http://localhost:8000/api/execution/status');
+        const executionsResponse = await fetch(`${getApiBase()}/api/execution/status`);
         const executionsData = executionsResponse.ok ? await executionsResponse.json() : [];
         setExecutions(executionsData);
       } catch (e) {
@@ -113,7 +245,7 @@ export default function Dashboard() {
       
       // Fetch workflow executions
       try {
-        const workflowResponse = await fetch('http://localhost:8000/api/workflows/executions');
+        const workflowResponse = await fetch(`${getApiBase()}/api/workflows/executions`);
         const workflowData = workflowResponse.ok ? await workflowResponse.json() : [];
         setWorkflowExecutions(workflowData);
       } catch (e) {
@@ -215,9 +347,20 @@ export default function Dashboard() {
                     <Text fontWeight="bold">{agent.name}</Text>
                     <Text fontSize="sm" color="gray.600">{agent.role}</Text>
                   </VStack>
-                  <Badge colorScheme={agent.status === 'executing' ? 'green' : 'gray'}>
-                    {agent.status}
-                  </Badge>
+                  <HStack>
+                    <Badge colorScheme={agent.status === 'executing' ? 'green' : 'gray'}>
+                      {agent.status}
+                    </Badge>
+                    <Button
+                      size="xs"
+                      colorScheme="red"
+                      variant="outline"
+                      leftIcon={<FiTrash2 />}
+                      onClick={() => deleteAgent(agent.id, agent.name)}
+                    >
+                      Delete
+                    </Button>
+                  </HStack>
                 </HStack>
               ))}
               {agents.length === 0 && (
@@ -292,24 +435,74 @@ export default function Dashboard() {
                             </Text>
                           </VStack>
                           <HStack>
-                            <Badge colorScheme={execution.status === 'running' ? 'green' : 'gray'}>
+                            <Badge colorScheme={
+                              execution.status === 'running' ? 'green' :
+                              execution.status === 'paused' ? 'yellow' :
+                              execution.status === 'aborted' ? 'red' :
+                              execution.status === 'cancelled' ? 'orange' : 'gray'
+                            }>
                               {execution.status}
                             </Badge>
                             {isStuck && (
-                              <Badge colorScheme="red" leftIcon={<FiAlertCircle />}>
-                                Stuck
+                              <Badge colorScheme="red">
+                                <HStack spacing={1}>
+                                  <FiAlertCircle />
+                                  <Text>Stuck</Text>
+                                </HStack>
                               </Badge>
                             )}
-                            {(execution.status === 'running' || execution.status === 'starting') && (
-                              <Button
-                                size="xs"
-                                colorScheme="red"
-                                leftIcon={<FiPause />}
-                                onClick={() => cancelExecution(execution.id)}
-                              >
-                                Cancel
-                              </Button>
-                            )}
+                            <HStack spacing={1}>
+                              {execution.status === 'running' && (
+                                <>
+                                  <Button
+                                    size="xs"
+                                    colorScheme="yellow"
+                                    leftIcon={<FiPause />}
+                                    onClick={() => pauseExecution(execution.id)}
+                                  >
+                                    Pause
+                                  </Button>
+                                  <Button
+                                    size="xs"
+                                    colorScheme="red"
+                                    leftIcon={<FiX />}
+                                    onClick={() => abortExecution(execution.id)}
+                                  >
+                                    Abort
+                                  </Button>
+                                </>
+                              )}
+                              {execution.status === 'paused' && (
+                                <>
+                                  <Button
+                                    size="xs"
+                                    colorScheme="green"
+                                    leftIcon={<FiPlay />}
+                                    onClick={() => resumeExecution(execution.id)}
+                                  >
+                                    Resume
+                                  </Button>
+                                  <Button
+                                    size="xs"
+                                    colorScheme="red"
+                                    leftIcon={<FiX />}
+                                    onClick={() => abortExecution(execution.id)}
+                                  >
+                                    Abort
+                                  </Button>
+                                </>
+                              )}
+                              {(execution.status === 'running' || execution.status === 'starting') && (
+                                <Button
+                                  size="xs"
+                                  colorScheme="orange"
+                                  leftIcon={<FiSkipForward />}
+                                  onClick={() => cancelExecution(execution.id)}
+                                >
+                                  Cancel
+                                </Button>
+                              )}
+                            </HStack>
                           </HStack>
                         </HStack>
                         
@@ -330,8 +523,11 @@ export default function Dashboard() {
                                 🔍 Agent Observation Window - {agent?.name || 'Unknown Agent'}
                               </Text>
                               {execution.needs_interaction && (
-                                <Badge colorScheme="yellow" leftIcon={<FiAlertCircle />}>
-                                  Needs Input
+                                <Badge colorScheme="yellow">
+                                  <HStack spacing={1}>
+                                    <FiAlertCircle />
+                                    <Text>Needs Input</Text>
+                                  </HStack>
                                 </Badge>
                               )}
                             </HStack>

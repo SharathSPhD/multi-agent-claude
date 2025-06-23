@@ -27,7 +27,8 @@ export interface Task {
   title: string;
   description: string;
   expected_output?: string;
-  assigned_agent_ids: string[];
+  assigned_agent_ids?: string[];
+  agent_id?: string; // For backwards compatibility
   assigned_agents?: Agent[];
   resources: string[];
   dependencies: string[];
@@ -60,12 +61,27 @@ export interface CreateTaskData {
   title: string;
   description: string;
   expected_output?: string;
-  assigned_agent_ids: string[];
+  assigned_agent_ids?: string[];
+  agent_id?: string; // For backwards compatibility
   resources?: string[];
   dependencies?: string[];
   priority?: TaskPriority;
   deadline?: string;
   estimated_duration?: number;
+}
+
+export interface AgentUpdate {
+  name?: string;
+  role?: string;
+  description?: string;
+  system_prompt?: string;
+  capabilities?: string[];
+  tools?: string[];
+  objectives?: string[];
+  constraints?: string[];
+  memory_settings?: Record<string, any>;
+  execution_settings?: Record<string, any>;
+  status?: AgentStatus;
 }
 
 export interface Execution {

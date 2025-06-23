@@ -1,16 +1,18 @@
-# MCP Multi-Agent Orchestration Platform v2.0
+# MCP Multi-Agent Orchestration Platform v2.1
 
-A sophisticated multi-agent orchestration platform that combines the **LastMile mcp-agent framework** with **Claude Code SDK integration** for autonomous agent execution, real-time monitoring, and dynamic web-based coordination.
+A sophisticated multi-agent orchestration platform that combines the **LastMile mcp-agent framework** with **Claude Code SDK integration** for autonomous agent execution, real-time monitoring, dynamic web-based coordination, and comprehensive workflow control.
 
 ## 🎯 Overview
 
-This platform evolved from v1.0 (static CLI) to v2.0 (production-ready web platform) enabling real-time multi-agent orchestration with Claude Code non-interactive execution, advanced workflow patterns, web-based management interface, and intelligent task delegation.
+This platform evolved from v1.0 (static CLI) to v2.1 (production-ready web platform) enabling real-time multi-agent orchestration with Claude Code non-interactive execution, advanced workflow patterns, web-based management interface, intelligent task delegation, and **full user control over execution workflows**.
 
-### Key Features v2.0
+### Key Features v2.1
 
 - **Claude Code SDK Integration**: Non-interactive execution with robust error handling and multi-turn conversation support
 - **Advanced Orchestration Engine**: 7 workflow patterns (Orchestrator, Parallel, Router, Evaluator-Optimizer, Swarm, Sequential, Adaptive)
 - **Dynamic Web Platform**: FastAPI backend + React frontend with real-time monitoring and agent observation windows
+- **🎮 Workflow Controls**: Pause/Resume/Abort individual executions with state preservation
+- **🗑️ Safe Agent Management**: Agent deletion with automatic task reassignment and safety checks
 - **Intelligent Agent Execution**: Claude Code spawning with working directories, response mirroring, and interaction detection
 - **Real-time Monitoring**: WebSocket-based agent communication tracking and execution monitoring with individual agent windows
 - **Web-based Agent Management**: Complete CRUD interface for agent creation, configuration, and management

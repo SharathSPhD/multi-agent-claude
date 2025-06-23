@@ -1,4 +1,4 @@
-# 🚀 How to Run MCP Multi-Agent Orchestration Platform v2.0
+# 🚀 How to Run MCP Multi-Agent Orchestration Platform v2.1
 
 ## Quick Start (5 Minutes) - Claude Code Integration Ready
 
@@ -25,7 +25,7 @@ cd frontend && npm install && cd ..
 
 ### 3. Start the System
 ```bash
-# Option A: Use the integrated launcher (recommended - starts everything + tests)
+# Option A: Use the integrated launcher (recommended - starts everything)
 python3 launch_system.py
 
 # Option B: Backend only for API usage
@@ -45,13 +45,13 @@ curl http://localhost:8000/api/dashboard/status
 open http://localhost:3000
 ```
 
-### 5. Run Automatic System Test
-The launcher automatically runs a comprehensive test after 30 seconds including:
-- Agent creation
-- Task creation  
-- Claude Code execution
-- Response processing
-- Database persistence
+### 5. Access Advanced Controls
+The v2.1 dashboard now includes comprehensive workflow controls:
+- Pause/Resume/Abort executions with state preservation
+- Individual agent task controls
+- Safe agent deletion with task impact analysis
+- Real-time execution status monitoring
+- Working directory management
 
 ## 🎯 Claude Code Integration Capabilities
 
@@ -132,7 +132,8 @@ for i in range(12):  # Check for 1 minute
 - `POST /api/agents` - Create new Claude Code agent
 - `GET /api/agents/{id}` - Get specific agent
 - `PUT /api/agents/{id}` - Update agent
-- `DELETE /api/agents/{id}` - Delete agent
+- `DELETE /api/agents/{id}` - Delete agent (with optional force parameter)
+- `DELETE /api/agents/{id}?force=true` - Force delete with task reassignment
 
 ### Tasks & Claude Code Execution
 - `GET /api/tasks` - List all tasks
@@ -141,6 +142,9 @@ for i in range(12):  # Check for 1 minute
 - `POST /api/execution/execute` - Execute task with Claude Code
 - `GET /api/execution/{id}` - Get execution status and results
 - `GET /api/execution/status` - List all executions
+- `POST /api/execution/{id}/pause` - Pause running execution
+- `POST /api/execution/{id}/resume` - Resume paused execution
+- `POST /api/execution/{id}/abort` - Abort running execution
 
 ### System Monitoring
 - `GET /api/dashboard/status` - System metrics and Claude Code status

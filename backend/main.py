@@ -5,7 +5,7 @@ FastAPI main application for dynamic multi-agent system.
 from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional
 import uuid
@@ -14,7 +14,7 @@ import asyncio
 from datetime import datetime
 
 from database import get_db, engine
-from models import Base, Agent, Task, Execution
+from models import Base, Agent, Task, Execution, TaskStatus, AgentStatus
 from schemas import (
     AgentCreate, AgentUpdate, AgentResponse,
     TaskCreate, TaskUpdate, TaskResponse,
@@ -30,6 +30,23 @@ from services.advanced_orchestrator import (
 # Create database tables
 Base.metadata.create_all(bind=engine)
 
+# Cleanup orphaned executions on startup
+def cleanup_orphaned_executions():
+    """Remove executions with NULL task_id or agent_id that cause validation errors"""
+    with engine.connect() as connection:
+        # Delete executions with NULL task_id or agent_id
+        connection.execute(
+            text("DELETE FROM executions WHERE task_id IS NULL OR agent_id IS NULL")
+        )
+        connection.commit()
+        print("🧹 Cleaned up orphaned executions")
+
+# Run cleanup
+try:
+    cleanup_orphaned_executions()
+except Exception as e:
+    print(f"⚠️  Cleanup warning: {e}")
+
 # Initialize FastAPI app
 app = FastAPI(
     title="MCP Multi-Agent System API",
@@ -37,10 +54,41 @@ app = FastAPI(
     version="2.0.0"
 )
 
+# Dynamic CORS configuration for WSL and local development
+import subprocess
+import socket
+
+def get_wsl_ips():
+    """Get all possible WSL IP addresses for CORS"""
+    origins = [
+        "http://localhost:3000", 
+        "http://localhost:3001", 
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+        "http://127.0.0.1:5173"
+    ]
+    
+    try:
+        # Get WSL IP addresses
+        result = subprocess.run(['hostname', '-I'], capture_output=True, text=True)
+        if result.stdout:
+            for ip in result.stdout.strip().split():
+                if ip and not ip.startswith('127.'):
+                    origins.extend([
+                        f"http://{ip}:3000",
+                        f"http://{ip}:3001",
+                        f"http://{ip}:5173"
+                    ])
+    except:
+        pass
+    
+    return origins
+
 # CORS middleware for React frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://localhost:5173", "http://172.21.149.249:3000", "http://172.21.149.249:3001"],  # React dev servers + WSL IP
+    allow_origins=get_wsl_ips(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"]
@@ -158,7 +206,6 @@ class TaskScheduler:
     
     async def create_task(self, db: Session, task_data: TaskCreate) -> Task:
         """Create a new task."""
-        from models import TaskStatus
         
         db_task = Task(
             id=str(uuid.uuid4()),
@@ -461,17 +508,72 @@ async def update_agent(agent_id: str, agent_update: AgentUpdate, db: Session = D
 
 
 @app.delete("/api/agents/{agent_id}")
-async def delete_agent(agent_id: str, db: Session = Depends(get_db)):
-    """Delete an agent."""
+async def delete_agent(agent_id: str, force: bool = False, db: Session = Depends(get_db)):
+    """Delete an agent with proper task handling."""
     try:
+        # Check if agent exists
+        agent = db.query(Agent).filter(Agent.id == agent_id).first()
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        
+        # Check for running executions
+        running_executions = db.query(Execution).filter(
+            Execution.agent_id == agent_id,
+            Execution.status.in_(["running", "starting", "paused"])
+        ).all()
+        
+        if running_executions and not force:
+            return {
+                "message": "Cannot delete agent with running executions",
+                "running_executions": len(running_executions),
+                "suggestion": "Cancel running executions first or use force=true"
+            }
+        
+        # Cancel all running executions if force=True
+        if running_executions and force:
+            for execution in running_executions:
+                try:
+                    await execution_engine.abort_execution(db, execution.id)
+                except Exception as e:
+                    print(f"Failed to abort execution {execution.id}: {e}")
+        
+        # Get associated tasks
+        associated_tasks = db.query(Task).join(Task.assigned_agents).filter(Agent.id == agent_id).all()
+        
+        # Handle task reassignment or cancellation
+        task_updates = []
+        for task in associated_tasks:
+            # Remove agent from task's assigned agents
+            task.assigned_agents = [a for a in task.assigned_agents if a.id != agent_id]
+            
+            # If no agents left, mark task as pending reassignment
+            if not task.assigned_agents:
+                task.status = TaskStatus.PENDING
+                task.error_message = f"Agent {agent.name} was deleted"
+            
+            task_updates.append({
+                "task_id": task.id,
+                "task_title": task.title,
+                "remaining_agents": len(task.assigned_agents)
+            })
+        
+        # Delete the agent
         await agent_manager.delete_agent(db, agent_id)
         
-        # Broadcast agent deletion
+        # Broadcast agent deletion with task info
         await websocket_manager.broadcast_agent_event("deleted", {
-            "id": agent_id
+            "id": agent_id,
+            "name": agent.name,
+            "affected_tasks": len(associated_tasks),
+            "task_updates": task_updates
         })
         
-        return {"message": "Agent deleted successfully"}
+        return {
+            "message": "Agent deleted successfully",
+            "affected_tasks": len(associated_tasks),
+            "task_updates": task_updates,
+            "cancelled_executions": len(running_executions) if force else 0
+        }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -625,6 +727,36 @@ async def cancel_execution(execution_id: str, db: Session = Depends(get_db)):
     try:
         result = await execution_engine.cancel_execution(db, execution_id)
         return {"message": f"Execution {execution_id} cancelled", "success": True}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/execution/{execution_id}/pause")
+async def pause_execution(execution_id: str, db: Session = Depends(get_db)):
+    """Pause a running execution."""
+    try:
+        result = await execution_engine.pause_execution(db, execution_id)
+        return {"message": f"Execution {execution_id} paused", "success": True, "result": result}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/execution/{execution_id}/resume")
+async def resume_execution(execution_id: str, db: Session = Depends(get_db)):
+    """Resume a paused execution."""
+    try:
+        result = await execution_engine.resume_execution(db, execution_id)
+        return {"message": f"Execution {execution_id} resumed", "success": True, "result": result}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/execution/{execution_id}/abort")
+async def abort_execution(execution_id: str, db: Session = Depends(get_db)):
+    """Abort an execution (cannot be resumed)."""
+    try:
+        result = await execution_engine.abort_execution(db, execution_id)
+        return {"message": f"Execution {execution_id} aborted", "success": True, "result": result}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

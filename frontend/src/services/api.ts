@@ -1,10 +1,18 @@
 // API service for backend communication
-import { Agent, Task, CreateAgentData, CreateTaskData } from '../types/api';
+import { Agent, Task, CreateAgentData, CreateTaskData, AgentUpdate, AgentStatus } from '../types/api';
 
 // Re-export types for backwards compatibility
-export type { Agent, Task, CreateAgentData, CreateTaskData } from '../types/api';
+export type { Agent, Task, CreateAgentData, CreateTaskData, AgentUpdate, AgentStatus } from '../types/api';
 
-const API_BASE = 'http://localhost:8000';
+// Dynamic API base to work with both localhost and WSL IP
+const API_BASE = (() => {
+  if (typeof window !== 'undefined') {
+    // Use the same hostname as the frontend, but port 8000
+    const { protocol, hostname } = window.location;
+    return `${protocol}//${hostname}:8000`;
+  }
+  return 'http://localhost:8000'; // Fallback for SSR
+})();
 
 class ApiService {
   // Agent operations
@@ -24,11 +32,31 @@ class ApiService {
     return response.json();
   }
 
+  async getAgent(id: string): Promise<Agent> {
+    const response = await fetch(`${API_BASE}/api/agents/${id}`);
+    if (!response.ok) throw new Error('Failed to fetch agent');
+    return response.json();
+  }
+
+  async updateAgent(id: string, data: AgentUpdate): Promise<Agent> {
+    const response = await fetch(`${API_BASE}/api/agents/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('Failed to update agent');
+    return response.json();
+  }
+
   async deleteAgent(id: string): Promise<void> {
     const response = await fetch(`${API_BASE}/api/agents/${id}`, {
       method: 'DELETE',
     });
     if (!response.ok) throw new Error('Failed to delete agent');
+  }
+
+  async setAgentStatus(id: string, status: AgentStatus): Promise<Agent> {
+    return this.updateAgent(id, { status });
   }
 
   // Task operations
@@ -46,6 +74,13 @@ class ApiService {
     });
     if (!response.ok) throw new Error('Failed to create task');
     return response.json();
+  }
+
+  async deleteTask(id: string): Promise<void> {
+    const response = await fetch(`${API_BASE}/api/tasks/${id}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error('Failed to delete task');
   }
 
   async executeTask(taskId: string): Promise<void> {
