@@ -352,7 +352,7 @@ export default function AdvancedOrchestrator() {
                         <strong>Iterations:</strong> {pattern.max_iterations}
                       </Text>
                       <Text fontSize="xs">
-                        <strong>Parallel Groups:</strong> {pattern.parallel_groups.length}
+                        <strong>Parallel Groups:</strong> {pattern.parallel_groups?.length || 0}
                       </Text>
                     </SimpleGrid>
                   </Box>

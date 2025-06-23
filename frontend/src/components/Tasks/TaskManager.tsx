@@ -26,13 +26,14 @@ import {
   IconButton,
   Flex,
 } from '@chakra-ui/react';
-import { FiPlus, FiPlay, FiCheckSquare, FiTrash2 } from 'react-icons/fi';
+import { FiPlus, FiPlay, FiCheckSquare, FiTrash2, FiUpload } from 'react-icons/fi';
 import { apiService, Agent, Task, CreateTaskData } from '../../services/api';
 
 export default function TaskManager() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingFiles, setLoadingFiles] = useState(false);
   const [formData, setFormData] = useState<CreateTaskData>({
     title: '',
     description: '',
@@ -59,6 +60,64 @@ export default function TaskManager() {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const getApiBase = () => {
+    if (typeof window !== 'undefined') {
+      const { protocol, hostname } = window.location;
+      return `${protocol}//${hostname}:8000`;
+    }
+    return 'http://localhost:8000';
+  };
+
+  const loadTasksFromFiles = async () => {
+    const directory = '/mnt/e/Development/mcp_a2a/project_selfdevelop'; // Get from project settings
+    setLoadingFiles(true);
+    
+    try {
+      const response = await fetch(`${getApiBase()}/api/project/load-from-directory`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ directory, force_reload: true })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to load tasks from files');
+      }
+      
+      const results = await response.json();
+      
+      toast({
+        title: 'Tasks loaded successfully',
+        description: `Loaded ${results.tasks_loaded} tasks from ${results.files_processed.length} files`,
+        status: 'success',
+        duration: 5000
+      });
+
+      if (results.errors.length > 0) {
+        toast({
+          title: 'Some errors occurred',
+          description: `${results.errors.length} errors during loading`,
+          status: 'warning',
+          duration: 3000
+        });
+      }
+
+      // Refresh tasks list
+      fetchData();
+      
+    } catch (error) {
+      toast({
+        title: 'Error loading tasks',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        status: 'error',
+        duration: 3000
+      });
+    } finally {
+      setLoadingFiles(false);
     }
   };
 
@@ -196,6 +255,15 @@ export default function TaskManager() {
       <Flex justify="space-between" align="center" mb={6}>
         <Heading>Task Management</Heading>
         <HStack spacing={3}>
+          <Button 
+            leftIcon={<FiUpload />} 
+            colorScheme="green" 
+            variant="outline"
+            onClick={loadTasksFromFiles}
+            isLoading={loadingFiles}
+          >
+            Load from Files
+          </Button>
           {tasks.length > 0 && (
             <Button 
               leftIcon={<FiTrash2 />} 

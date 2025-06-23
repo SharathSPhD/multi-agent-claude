@@ -152,4 +152,7 @@ FRONTEND*.md
 
 
 claude_sdk_test/
+scripts/
 CLAUDE.md
+STATUS*.md
+test_api*.py

@@ -29,7 +29,7 @@ import {
   Flex,
   Divider,
 } from '@chakra-ui/react';
-import { FiPlay, FiPause, FiClock, FiActivity, FiAlertCircle, FiTrash2, FiSkipForward, FiX } from 'react-icons/fi';
+import { FiPlay, FiPause, FiClock, FiActivity, FiAlertCircle, FiTrash2, FiSkipForward, FiX, FiFolder } from 'react-icons/fi';
 import { apiService, Agent, Task } from '../../services/api';
 
 // Dynamic API base to work with both localhost and WSL IP
@@ -65,13 +65,38 @@ interface WorkflowExecution {
   current_step?: string;
 }
 
+interface WorkflowPattern {
+  id: string;
+  name: string;
+  description: string;
+  workflow_type: string;
+  agent_ids: string[];
+  task_ids: string[];
+  user_objective?: string;
+  status: string;
+  created_at: string;
+}
+
 export default function Dashboard() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [workflowExecutions, setWorkflowExecutions] = useState<WorkflowExecution[]>([]);
+  const [workflowPatterns, setWorkflowPatterns] = useState<WorkflowPattern[]>([]);
+  const [projectDirectory, setProjectDirectory] = useState('/mnt/e/Development/mcp_a2a/project_selfdevelop');
+  const [directoryValid, setDirectoryValid] = useState(false);
   const [loading, setLoading] = useState(true);
   const toast = useToast();
+
+  const checkDirectoryValidity = async (directory: string) => {
+    try {
+      const response = await fetch(`${getApiBase()}/api/project/directory-info?directory=${encodeURIComponent(directory)}`);
+      const data = await response.json();
+      setDirectoryValid(data.exists && data.total_files > 0);
+    } catch (error) {
+      setDirectoryValid(false);
+    }
+  };
 
   const cancelExecution = async (executionId: string) => {
     try {
@@ -253,6 +278,16 @@ export default function Dashboard() {
         setWorkflowExecutions([]);
       }
       
+      // Fetch workflow patterns
+      try {
+        const patternsResponse = await fetch(`${getApiBase()}/api/workflows/patterns`);
+        const patternsData = patternsResponse.ok ? await patternsResponse.json() : [];
+        setWorkflowPatterns(patternsData);
+      } catch (e) {
+        console.warn('Failed to fetch workflow patterns:', e);
+        setWorkflowPatterns([]);
+      }
+      
       console.log('Dashboard: Data fetched successfully', { 
         agents: agentsData.length, 
         tasks: tasksData.length,
@@ -269,8 +304,8 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-
     fetchData();
+    checkDirectoryValidity(projectDirectory);
     // Refresh every 5 seconds
     const interval = setInterval(fetchData, 5000);
     return () => clearInterval(interval);
@@ -336,7 +371,7 @@ export default function Dashboard() {
         </Card>
       </SimpleGrid>
 
-      <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={6}>
+      <SimpleGrid columns={{ base: 1, lg: 3 }} spacing={6}>
         <Card>
           <CardBody>
             <Heading size="md" mb={4}>Recent Agents</Heading>
@@ -398,6 +433,58 @@ export default function Dashboard() {
                   No tasks created yet. Go to Tasks section to create your first task.
                 </Text>
               )}
+            </VStack>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardBody>
+            <Heading size="md" mb={4}>
+              <HStack>
+                <FiFolder />
+                <Text>Project Directory</Text>
+              </HStack>
+            </Heading>
+            <VStack spacing={3} align="stretch">
+              <Text fontSize="sm" color="gray.600">
+                Current project directory for agent/task files
+              </Text>
+              <HStack>
+                <Text 
+                  fontFamily="mono" 
+                  fontSize="sm" 
+                  bg={directoryValid ? "green.50" : "gray.100"} 
+                  p={2} 
+                  borderRadius="md" 
+                  flex={1}
+                  border={directoryValid ? "1px solid" : "none"}
+                  borderColor={directoryValid ? "green.200" : "transparent"}
+                >
+                  {projectDirectory}
+                </Text>
+                <Button 
+                  size="sm" 
+                  colorScheme="blue" 
+                  leftIcon={<FiFolder />}
+                  onClick={() => {
+                    const newDir = prompt('Enter project directory path:', projectDirectory);
+                    if (newDir && newDir !== projectDirectory) {
+                      setProjectDirectory(newDir);
+                      checkDirectoryValidity(newDir);
+                    }
+                  }}
+                >
+                  Browse
+                </Button>
+              </HStack>
+              <HStack justify="space-between">
+                <Text fontSize="xs" color="gray.500">
+                  Load agents and tasks from their respective pages
+                </Text>
+                {directoryValid && (
+                  <Badge colorScheme="green" size="sm">Valid Directory</Badge>
+                )}
+              </HStack>
             </VStack>
           </CardBody>
         </Card>
@@ -687,6 +774,92 @@ export default function Dashboard() {
                           <strong>Current Step:</strong> {workflow.current_step}
                         </Text>
                       )}
+                    </VStack>
+                  </CardBody>
+                </Card>
+              ))}
+            </VStack>
+          </CardBody>
+        </Card>
+      )}
+
+      {/* Workflow Patterns */}
+      {workflowPatterns.length > 0 && (
+        <Card mt={6}>
+          <CardHeader>
+            <HStack>
+              <FiActivity />
+              <Heading size="md">Workflow Patterns</Heading>
+              <Badge colorScheme="blue">{workflowPatterns.length}</Badge>
+            </HStack>
+          </CardHeader>
+          <CardBody>
+            <VStack spacing={4} align="stretch">
+              {workflowPatterns.map(pattern => (
+                <Card key={pattern.id} variant="outline" borderColor="blue.200">
+                  <CardBody>
+                    <VStack align="stretch" spacing={3}>
+                      <HStack justify="space-between">
+                        <VStack align="start" spacing={0}>
+                          <Text fontWeight="bold">{pattern.name}</Text>
+                          <Text fontSize="sm" color="gray.600">
+                            {pattern.description}
+                          </Text>
+                        </VStack>
+                        <Badge colorScheme="blue">{pattern.workflow_type}</Badge>
+                      </HStack>
+                      
+                      <HStack spacing={4}>
+                        <HStack>
+                          <Text fontSize="sm" fontWeight="medium">Agents:</Text>
+                          <Badge colorScheme="green">{pattern.agent_ids?.length || 0}</Badge>
+                        </HStack>
+                        <HStack>
+                          <Text fontSize="sm" fontWeight="medium">Tasks:</Text>
+                          <Badge colorScheme="orange">{pattern.task_ids?.length || 0}</Badge>
+                        </HStack>
+                      </HStack>
+                      
+                      {pattern.user_objective && (
+                        <Text fontSize="sm" color="gray.700">
+                          <Text as="span" fontWeight="medium">Objective:</Text> {pattern.user_objective}
+                        </Text>
+                      )}
+                      
+                      <Text fontSize="xs" color="gray.500">
+                        Created: {new Date(pattern.created_at).toLocaleString()} • Status: {pattern.status}
+                      </Text>
+                      
+                      <Button 
+                        size="sm" 
+                        colorScheme="blue" 
+                        leftIcon={<FiPlay />}
+                        onClick={() => {
+                          // Execute workflow pattern
+                          fetch(`${getApiBase()}/api/workflows/execute/${pattern.id}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({})
+                          }).then(() => {
+                            toast({
+                              title: 'Workflow execution started',
+                              description: `Started execution of ${pattern.name}`,
+                              status: 'success',
+                              duration: 3000
+                            });
+                            fetchData();
+                          }).catch(error => {
+                            toast({
+                              title: 'Execution failed',
+                              description: error.message,
+                              status: 'error',
+                              duration: 3000
+                            });
+                          });
+                        }}
+                      >
+                        Execute Pattern
+                      </Button>
                     </VStack>
                   </CardBody>
                 </Card>

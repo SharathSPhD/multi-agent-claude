@@ -166,6 +166,52 @@ class AgentCommunication(Base):
     to_agent = relationship("Agent", foreign_keys=[to_agent_id])
 
 
+class WorkflowPattern(Base):
+    """Workflow pattern definitions for orchestration."""
+    __tablename__ = "workflow_patterns"
+    
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column(String(255), nullable=False)
+    description = Column(Text)
+    workflow_type = Column(String(50), nullable=False)  # orchestrator, parallel, sequential, etc.
+    
+    # JSON fields for pattern configuration
+    agent_ids = Column(JSON, default=list)  # List of agent IDs
+    task_ids = Column(JSON, default=list)   # List of task IDs
+    dependencies = Column(JSON, default=dict)  # Task dependencies
+    config = Column(JSON, default=dict)     # Pattern-specific configuration
+    
+    # Execution metadata
+    user_objective = Column(Text)
+    status = Column(String(50), default="active")  # active, archived, deprecated
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class WorkflowExecution(Base):
+    """Workflow execution tracking."""
+    __tablename__ = "workflow_executions"
+    
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    pattern_id = Column(String(36), ForeignKey("workflow_patterns.id"), nullable=False)
+    status = Column(String(50), default="running")  # running, completed, failed, cancelled
+    
+    # Execution tracking
+    start_time = Column(DateTime, default=datetime.utcnow)
+    end_time = Column(DateTime)
+    progress_percentage = Column(JSON, default=0)
+    current_step = Column(String(255))
+    
+    # Results and logs
+    execution_logs = Column(JSON, default=list)
+    results = Column(JSON, default=dict)
+    error_details = Column(JSON, default=dict)
+    
+    # Relationships
+    pattern = relationship("WorkflowPattern")
+
+
 class SystemConfiguration(Base):
     """System-wide configuration settings."""
     __tablename__ = "system_configurations"

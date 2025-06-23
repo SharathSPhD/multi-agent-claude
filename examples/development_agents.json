@@ -1,0 +1,87 @@
+{
+  "agents": [
+    {
+      "name": "Frontend Developer",
+      "role": "frontend_developer", 
+      "description": "Develops React TypeScript frontend components and features",
+      "system_prompt": "You are a frontend developer specializing in React TypeScript with Chakra UI. Build clean, responsive components with proper error handling. Follow existing code patterns and use TypeScript properly.",
+      "capabilities": ["react_development", "typescript", "ui_components", "state_management"],
+      "tools": ["react", "typescript", "chakra-ui", "vite", "npm"],
+      "objectives": ["Build responsive UI components", "Implement user interactions", "Maintain code quality"],
+      "constraints": ["Follow TypeScript best practices", "Use existing design patterns", "Ensure accessibility"],
+      "memory_settings": {
+        "context_window": 4000,
+        "memory_type": "semantic"
+      },
+      "execution_settings": {
+        "timeout": 300,
+        "retry_count": 3
+      }
+    },
+    {
+      "name": "Backend Developer", 
+      "role": "backend_developer",
+      "description": "Develops FastAPI backend endpoints and database models",
+      "system_prompt": "You are a backend developer specializing in FastAPI and SQLAlchemy. Build robust APIs with proper validation, error handling, and database operations. Follow RESTful principles.",
+      "capabilities": ["api_development", "database_design", "data_validation", "performance_optimization"],
+      "tools": ["fastapi", "sqlalchemy", "pydantic", "uvicorn", "python"],
+      "objectives": ["Build reliable APIs", "Optimize database queries", "Ensure data integrity"],
+      "constraints": ["Follow REST principles", "Validate all inputs", "Handle errors gracefully"],
+      "memory_settings": {
+        "context_window": 4000,
+        "memory_type": "semantic"
+      },
+      "execution_settings": {
+        "timeout": 400,
+        "retry_count": 3
+      }
+    },
+    {
+      "name": "Testing Engineer",
+      "role": "testing_engineer", 
+      "description": "Creates and maintains comprehensive tests for frontend and backend",
+      "system_prompt": "You are a testing engineer focused on quality assurance. Write comprehensive tests including unit tests, integration tests, and end-to-end tests. Ensure good test coverage and follow testing best practices.",
+      "capabilities": ["test_automation", "unit_testing", "integration_testing", "test_design"],
+      "tools": ["pytest", "jest", "react-testing-library", "supertest", "coverage"],
+      "objectives": ["Ensure code quality", "Prevent regressions", "Improve test coverage"],
+      "constraints": ["Write maintainable tests", "Test edge cases", "Keep tests fast and reliable"],
+      "memory_settings": {
+        "context_window": 3000,
+        "memory_type": "semantic"
+      },
+      "execution_settings": {
+        "timeout": 250,
+        "retry_count": 2
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "title": "Add System Health Endpoint",
+      "description": "Create a new backend endpoint /api/system/health that returns detailed system health information including database status, active connections, and memory usage",
+      "type": "development",
+      "priority": "medium",
+      "requirements": ["FastAPI endpoint", "Database connectivity check", "JSON response format"],
+      "acceptance_criteria": ["Endpoint returns 200 status", "Includes database status", "Returns response time metrics"],
+      "assigned_agents": ["Backend Developer"]
+    },
+    {
+      "title": "Create System Status Widget", 
+      "description": "Build a React component that displays system health status on the dashboard with color-coded indicators and refresh capability",
+      "type": "development",
+      "priority": "medium", 
+      "requirements": ["React TypeScript component", "Chakra UI styling", "Auto-refresh functionality"],
+      "acceptance_criteria": ["Shows green/yellow/red status", "Refreshes every 30 seconds", "Displays key metrics"],
+      "assigned_agents": ["Frontend Developer"]
+    },
+    {
+      "title": "Test System Health Features",
+      "description": "Write comprehensive tests for the system health endpoint and widget, including unit tests and integration tests",
+      "type": "testing",
+      "priority": "medium",
+      "requirements": ["Backend API tests", "Frontend component tests", "Integration tests"],
+      "acceptance_criteria": ["95% test coverage", "Tests pass consistently", "Mock external dependencies"],
+      "assigned_agents": ["Testing Engineer"]
+    }
+  ]
+}

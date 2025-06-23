@@ -23,8 +23,7 @@ from schemas import (
 )
 from services.execution_engine import ExecutionEngine
 from services.advanced_orchestrator import (
-    advanced_orchestrator, WorkflowPattern, WorkflowExecution, 
-    WorkflowType, AgentCommunication
+    advanced_orchestrator, WorkflowType, AgentCommunication
 )
 
 # Create database tables
@@ -159,11 +158,19 @@ class AgentManager:
         return db_agent
     
     async def delete_agent(self, db: Session, agent_id: str):
-        """Delete agent."""
+        """Delete agent with proper relationship cleanup."""
         db_agent = db.query(Agent).filter(Agent.id == agent_id).first()
         if not db_agent:
             raise ValueError("Agent not found")
         
+        # First, remove agent from all task assignments
+        from models import TaskAgentAssignment
+        db.query(TaskAgentAssignment).filter(TaskAgentAssignment.agent_id == agent_id).delete()
+        
+        # Delete all executions for this agent
+        db.query(Execution).filter(Execution.agent_id == agent_id).delete()
+        
+        # Finally delete the agent
         db.delete(db_agent)
         db.commit()
     
@@ -691,7 +698,7 @@ async def start_task_execution(request: TaskExecutionRequest, db: Session = Depe
 async def stop_execution(execution_id: str, db: Session = Depends(get_db)):
     """Stop a running execution."""
     try:
-        await execution_engine.stop_execution(db, execution_id)
+        await execution_engine.abort_execution(execution_id, db)
         
         # Broadcast execution stop
         await websocket_manager.broadcast({
@@ -708,14 +715,14 @@ async def stop_execution(execution_id: str, db: Session = Depends(get_db)):
 @app.get("/api/execution/status", response_model=List[ExecutionResponse])
 async def get_execution_status(db: Session = Depends(get_db)):
     """Get status of all current executions."""
-    executions = await execution_engine.get_all_executions(db)
+    executions = execution_engine.get_all_executions(db)
     return executions
 
 
 @app.get("/api/execution/{execution_id}", response_model=ExecutionResponse)
 async def get_execution_details(execution_id: str, db: Session = Depends(get_db)):
     """Get detailed information about a specific execution."""
-    execution = await execution_engine.get_execution(db, execution_id)
+    execution = execution_engine.get_execution_status(execution_id, db)
     if not execution:
         raise HTTPException(status_code=404, detail="Execution not found")
     return execution
@@ -725,7 +732,7 @@ async def get_execution_details(execution_id: str, db: Session = Depends(get_db)
 async def cancel_execution(execution_id: str, db: Session = Depends(get_db)):
     """Cancel a running execution."""
     try:
-        result = await execution_engine.cancel_execution(db, execution_id)
+        result = await execution_engine.abort_execution(execution_id, db)
         return {"message": f"Execution {execution_id} cancelled", "success": True}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -735,7 +742,7 @@ async def cancel_execution(execution_id: str, db: Session = Depends(get_db)):
 async def pause_execution(execution_id: str, db: Session = Depends(get_db)):
     """Pause a running execution."""
     try:
-        result = await execution_engine.pause_execution(db, execution_id)
+        result = await execution_engine.pause_execution(execution_id, db)
         return {"message": f"Execution {execution_id} paused", "success": True, "result": result}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -745,7 +752,7 @@ async def pause_execution(execution_id: str, db: Session = Depends(get_db)):
 async def resume_execution(execution_id: str, db: Session = Depends(get_db)):
     """Resume a paused execution."""
     try:
-        result = await execution_engine.resume_execution(db, execution_id)
+        result = await execution_engine.resume_execution(execution_id, db)
         return {"message": f"Execution {execution_id} resumed", "success": True, "result": result}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -755,7 +762,7 @@ async def resume_execution(execution_id: str, db: Session = Depends(get_db)):
 async def abort_execution(execution_id: str, db: Session = Depends(get_db)):
     """Abort an execution (cannot be resumed)."""
     try:
-        result = await execution_engine.abort_execution(db, execution_id)
+        result = await execution_engine.abort_execution(execution_id, db)
         return {"message": f"Execution {execution_id} aborted", "success": True, "result": result}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -765,7 +772,7 @@ async def abort_execution(execution_id: str, db: Session = Depends(get_db)):
 @app.get("/api/dashboard/status", response_model=SystemStatus)
 async def get_system_status(db: Session = Depends(get_db)):
     """Get overall system status and metrics."""
-    status = await execution_engine.get_system_status(db)
+    status = execution_engine.get_system_status(db)
     return status
 
 
@@ -822,6 +829,8 @@ async def create_workflow_pattern(
     db: Session = Depends(get_db)
 ):
     """Create an advanced workflow pattern."""
+    from models import WorkflowPattern
+    
     name = request.get("name", "")
     description = request.get("description", "")
     agent_ids = request.get("agent_ids", [])
@@ -835,8 +844,20 @@ async def create_workflow_pattern(
     if not agents or not tasks:
         raise HTTPException(status_code=404, detail="Agents or tasks not found")
     
-    wf_type = WorkflowType(workflow_type) if workflow_type else None
-    
+    # Create in-memory pattern for orchestrator
+    wf_type = None
+    if workflow_type:
+        try:
+            # Try direct mapping first
+            wf_type = WorkflowType(workflow_type.lower())
+        except ValueError:
+            # If that fails, try to find by uppercase name
+            for wf in WorkflowType:
+                if wf.name == workflow_type.upper():
+                    wf_type = wf
+                    break
+            if not wf_type:
+                raise HTTPException(status_code=400, detail=f"Invalid workflow type: {workflow_type}")
     pattern = await advanced_orchestrator.create_workflow_pattern(
         name=name,
         description=description,
@@ -845,12 +866,51 @@ async def create_workflow_pattern(
         workflow_type=wf_type
     )
     
-    return pattern.dict()
+    # Save to database
+    from models import WorkflowPattern as DBWorkflowPattern
+    db_pattern = DBWorkflowPattern(
+        id=pattern.id,
+        name=name,
+        description=description,
+        workflow_type=workflow_type or "parallel",
+        agent_ids=agent_ids,
+        task_ids=task_ids,
+        user_objective=user_objective,
+        config={"pattern_data": "created_from_api"}
+    )
+    db.add(db_pattern)
+    db.commit()
+    db.refresh(db_pattern)
+    
+    return {
+        "id": db_pattern.id,
+        "name": db_pattern.name,
+        "description": db_pattern.description,
+        "workflow_type": db_pattern.workflow_type,
+        "agent_ids": db_pattern.agent_ids,
+        "task_ids": db_pattern.task_ids,
+        "user_objective": db_pattern.user_objective,
+        "status": db_pattern.status,
+        "created_at": db_pattern.created_at.isoformat()
+    }
 
 @app.get("/api/workflows/patterns")
-async def list_workflow_patterns():
+async def list_workflow_patterns(db: Session = Depends(get_db)):
     """List all workflow patterns."""
-    return [pattern.dict() for pattern in advanced_orchestrator.workflow_patterns.values()]
+    from models import WorkflowPattern
+    
+    patterns = db.query(WorkflowPattern).filter(WorkflowPattern.status == "active").all()
+    return [{
+        "id": pattern.id,
+        "name": pattern.name,
+        "description": pattern.description,
+        "workflow_type": pattern.workflow_type,
+        "agent_ids": pattern.agent_ids,
+        "task_ids": pattern.task_ids,
+        "user_objective": pattern.user_objective,
+        "status": pattern.status,
+        "created_at": pattern.created_at.isoformat()
+    } for pattern in patterns]
 
 @app.post("/api/workflows/execute/{pattern_id}")
 async def execute_workflow_pattern(
@@ -859,11 +919,43 @@ async def execute_workflow_pattern(
     db: Session = Depends(get_db)
 ):
     """Execute a workflow pattern with real-time monitoring."""
+    from models import WorkflowPattern, WorkflowExecution
+    
     try:
+        # Get pattern from database
+        db_pattern = db.query(WorkflowPattern).filter(WorkflowPattern.id == pattern_id).first()
+        if not db_pattern:
+            raise HTTPException(status_code=404, detail="Workflow pattern not found")
+        
+        # Create workflow execution record
+        workflow_execution = WorkflowExecution(
+            id=str(uuid.uuid4()),
+            pattern_id=pattern_id,
+            status="running",
+            context=context or {},
+            config=db_pattern.config
+        )
+        db.add(workflow_execution)
+        db.commit()
+        
+        # Execute with orchestrator
         execution = await advanced_orchestrator.execute_workflow_pattern(
             pattern_id, db, context
         )
-        return execution.dict()
+        
+        # Update workflow execution status
+        workflow_execution.status = execution.status if hasattr(execution, 'status') else "completed"
+        workflow_execution.result = execution.dict() if hasattr(execution, 'dict') else {}
+        db.commit()
+        
+        return {
+            "id": workflow_execution.id,
+            "pattern_id": pattern_id,
+            "status": workflow_execution.status,
+            "context": workflow_execution.context,
+            "result": workflow_execution.result,
+            "started_at": workflow_execution.started_at.isoformat()
+        }
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -878,9 +970,20 @@ async def get_execution_status(execution_id: str):
     return execution.dict()
 
 @app.get("/api/workflows/executions")
-async def list_active_executions():
+async def list_active_executions(db: Session = Depends(get_db)):
     """List all active workflow executions."""
-    return [execution.dict() for execution in advanced_orchestrator.active_executions.values()]
+    from models import WorkflowExecution
+    
+    executions = db.query(WorkflowExecution).filter(WorkflowExecution.status.in_(["running", "paused"])).all()
+    return [{
+        "id": execution.id,
+        "pattern_id": execution.pattern_id,
+        "status": execution.status,
+        "context": execution.context,
+        "result": execution.result,
+        "started_at": execution.started_at.isoformat(),
+        "completed_at": execution.completed_at.isoformat() if execution.completed_at else None
+    } for execution in executions]
 
 @app.get("/api/workflows/communications/{execution_id}")
 async def get_agent_communications(execution_id: str):
@@ -910,6 +1013,154 @@ async def health_check():
         "timestamp": datetime.utcnow().isoformat(),
         "version": "2.0.0"
     }
+
+
+# Project Management Endpoints
+@app.post("/api/project/load-from-directory")
+async def load_from_directory(request: dict, db: Session = Depends(get_db)):
+    """Load agents and tasks from project directory"""
+    import os
+    import json
+    
+    directory = request.get("directory", "./")
+    force_reload = request.get("force_reload", False)
+    
+    try:
+        results = {
+            "agents_loaded": 0,
+            "tasks_loaded": 0,
+            "errors": [],
+            "files_processed": []
+        }
+        
+        if not os.path.exists(directory):
+            raise HTTPException(status_code=400, detail=f"Directory not found: {directory}")
+        
+        # Look for agent and task files
+        for filename in os.listdir(directory):
+            file_path = os.path.join(directory, filename)
+            
+            if not os.path.isfile(file_path):
+                continue
+                
+            try:
+                # Try to load structured files (JSON)
+                if filename.endswith(('.json', '.agents.json', '.tasks.json')):
+                    with open(file_path, 'r') as f:
+                        data = json.load(f)
+                        
+                    if 'agents' in filename.lower() or 'agents' in data:
+                        agents_data = data.get('agents', data if isinstance(data, list) else [data])
+                        for agent_data in agents_data:
+                            try:
+                                # Check if agent already exists
+                                existing = db.query(Agent).filter(Agent.name == agent_data.get('name')).first()
+                                if existing and not force_reload:
+                                    continue
+                                    
+                                if existing and force_reload:
+                                    db.delete(existing)
+                                    db.commit()  # Commit deletion before creating new
+                                
+                                db_agent = Agent(
+                                    id=str(uuid.uuid4()),
+                                    name=agent_data.get('name', 'Unknown Agent'),
+                                    role=agent_data.get('role', 'General Agent'),
+                                    description=agent_data.get('description'),
+                                    system_prompt=agent_data.get('system_prompt', f"You are {agent_data.get('name', 'an agent')}."),
+                                    capabilities=agent_data.get('capabilities', []),
+                                    tools=agent_data.get('tools', []),
+                                    objectives=agent_data.get('objectives', []),
+                                    constraints=agent_data.get('constraints', []),
+                                    status=AgentStatus.IDLE
+                                )
+                                db.add(db_agent)
+                                results["agents_loaded"] += 1
+                            except Exception as e:
+                                results["errors"].append(f"Error loading agent from {filename}: {str(e)}")
+                    
+                    if 'tasks' in filename.lower() or 'tasks' in data:
+                        tasks_data = data.get('tasks', data if isinstance(data, list) else [data])
+                        for task_data in tasks_data:
+                            try:
+                                # Check if task already exists
+                                existing = db.query(Task).filter(Task.title == task_data.get('title')).first()
+                                if existing and not force_reload:
+                                    continue
+                                    
+                                if existing and force_reload:
+                                    db.delete(existing)
+                                    db.commit()  # Commit deletion before creating new
+                                
+                                db_task = Task(
+                                    id=str(uuid.uuid4()),
+                                    title=task_data.get('title', 'Untitled Task'),
+                                    description=task_data.get('description', ''),
+                                    expected_output=task_data.get('expected_output'),
+                                    resources=task_data.get('resources', []),
+                                    dependencies=task_data.get('dependencies', []),
+                                    priority=task_data.get('priority', 'medium'),
+                                    status=TaskStatus.PENDING
+                                )
+                                db.add(db_task)
+                                
+                                # Handle agent assignments if specified
+                                if 'assigned_agents' in task_data:
+                                    from models import TaskAgentAssignment
+                                    for agent_name in task_data['assigned_agents']:
+                                        agent = db.query(Agent).filter(Agent.name == agent_name).first()
+                                        if agent:
+                                            assignment = TaskAgentAssignment(
+                                                task_id=db_task.id,
+                                                agent_id=agent.id
+                                            )
+                                            db.add(assignment)
+                                
+                                results["tasks_loaded"] += 1
+                            except Exception as e:
+                                results["errors"].append(f"Error loading task from {filename}: {str(e)}")
+                
+                results["files_processed"].append(filename)
+                
+            except Exception as e:
+                results["errors"].append(f"Error processing {filename}: {str(e)}")
+        
+        db.commit()
+        return results
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/project/directory-info")
+async def get_directory_info(directory: str = "./"):
+    """Get information about files in a directory"""
+    import os
+    
+    try:
+        if not os.path.exists(directory):
+            return {"exists": False, "error": "Directory not found"}
+        
+        files = []
+        for filename in os.listdir(directory):
+            file_path = os.path.join(directory, filename)
+            if os.path.isfile(file_path):
+                file_info = {
+                    "name": filename,
+                    "size": os.path.getsize(file_path),
+                    "modified": os.path.getmtime(file_path),
+                    "type": "structured" if filename.endswith(('.json',)) else "unstructured" if filename.endswith(('.txt', '.md', '.mdx')) else "other"
+                }
+                files.append(file_info)
+        
+        return {
+            "exists": True,
+            "directory": directory,
+            "files": files,
+            "total_files": len(files)
+        }
+    except Exception as e:
+        return {"exists": False, "error": str(e)}
 
 
 if __name__ == "__main__":

@@ -1,0 +1,34 @@
+{
+  "tasks": [
+    {
+      "title": "Add System Metrics Endpoint",
+      "description": "Create a new backend endpoint /api/system/metrics that returns real-time system metrics including memory usage, CPU usage, active connections, and database performance. Save the endpoint implementation in the project_selfdevelop directory.",
+      "type": "development",
+      "priority": "high",
+      "requirements": ["FastAPI endpoint", "System monitoring", "JSON response", "Performance metrics"],
+      "acceptance_criteria": ["Endpoint returns 200 status", "Includes memory/CPU metrics", "Database performance stats", "Response time under 100ms"],
+      "estimated_hours": 2,
+      "assigned_agents": ["Backend Developer v2"]
+    },
+    {
+      "title": "Create Real-time Metrics Dashboard",
+      "description": "Build a React component that displays live system metrics with charts and color-coded indicators. Use WebSocket for real-time updates and save the component in the project_selfdevelop directory.",
+      "type": "development",
+      "priority": "high",
+      "requirements": ["React TypeScript component", "Chakra UI styling", "Real-time WebSocket updates", "Charts/graphs"],
+      "acceptance_criteria": ["Live updating metrics display", "Color-coded status indicators", "Responsive design", "Auto-refresh capability"],
+      "estimated_hours": 3,
+      "assigned_agents": ["Frontend Developer v2"]
+    },
+    {
+      "title": "Comprehensive System Testing",
+      "description": "Write complete test suites for the metrics endpoint and dashboard component. Include unit tests, integration tests, and performance tests. Save all tests in the project_selfdevelop directory.",
+      "type": "testing",
+      "priority": "high",
+      "requirements": ["Backend API tests", "Frontend component tests", "Integration tests", "Performance tests"],
+      "acceptance_criteria": ["90% test coverage", "All tests passing", "Performance benchmarks met", "Edge cases covered"],
+      "estimated_hours": 2,
+      "assigned_agents": ["Testing Engineer v2"]
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "agents": [
+    {
+      "name": "Data Analyst",
+      "role": "analyst",
+      "description": "Analyzes data and generates insights from various data sources",
+      "system_prompt": "You are a data analyst. Analyze data carefully and provide clear insights.",
+      "capabilities": ["data_analysis", "visualization", "statistical_modeling"],
+      "tools": ["python", "pandas", "matplotlib", "seaborn"],
+      "objectives": ["Generate accurate data insights", "Create clear visualizations"],
+      "constraints": ["Ensure data privacy", "Validate data quality"],
+      "memory_settings": {
+        "context_window": 4000,
+        "memory_type": "semantic"
+      },
+      "execution_settings": {
+        "timeout": 300,
+        "retry_count": 3
+      }
+    },
+    {
+      "name": "Web Scraper",
+      "role": "collector",
+      "description": "Collects data from web sources and APIs",
+      "system_prompt": "You are a web scraper. Extract data efficiently and respectfully.",
+      "capabilities": ["web_scraping", "api_integration", "data_extraction"],
+      "tools": ["requests", "beautifulsoup", "selenium", "scrapy"],
+      "objectives": ["Extract clean data", "Respect robots.txt"],
+      "constraints": ["Rate limiting", "No illegal scraping"],
+      "memory_settings": {
+        "context_window": 2000,
+        "memory_type": "episodic"
+      },
+      "execution_settings": {
+        "timeout": 600,
+        "retry_count": 5
+      }
+    }
+  ]
+}

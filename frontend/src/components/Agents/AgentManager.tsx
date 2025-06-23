@@ -25,12 +25,13 @@ import {
   IconButton,
   Flex,
 } from '@chakra-ui/react';
-import { FiPlus, FiTrash2, FiUser } from 'react-icons/fi';
+import { FiPlus, FiTrash2, FiUser, FiUpload } from 'react-icons/fi';
 import { apiService, Agent, CreateAgentData } from '../../services/api';
 
 export default function AgentManager() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingFiles, setLoadingFiles] = useState(false);
   const [formData, setFormData] = useState<CreateAgentData>({
     name: '',
     role: '',
@@ -58,6 +59,64 @@ export default function AgentManager() {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const getApiBase = () => {
+    if (typeof window !== 'undefined') {
+      const { protocol, hostname } = window.location;
+      return `${protocol}//${hostname}:8000`;
+    }
+    return 'http://localhost:8000';
+  };
+
+  const loadAgentsFromFiles = async () => {
+    const directory = '/mnt/e/Development/mcp_a2a/project_selfdevelop'; // Get from project settings
+    setLoadingFiles(true);
+    
+    try {
+      const response = await fetch(`${getApiBase()}/api/project/load-from-directory`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ directory, force_reload: true })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to load agents from files');
+      }
+      
+      const results = await response.json();
+      
+      toast({
+        title: 'Agents loaded successfully',
+        description: `Loaded ${results.agents_loaded} agents from ${results.files_processed.length} files`,
+        status: 'success',
+        duration: 5000
+      });
+
+      if (results.errors.length > 0) {
+        toast({
+          title: 'Some errors occurred',
+          description: `${results.errors.length} errors during loading`,
+          status: 'warning',
+          duration: 3000
+        });
+      }
+
+      // Refresh agents list
+      fetchAgents();
+      
+    } catch (error) {
+      toast({
+        title: 'Error loading agents',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        status: 'error',
+        duration: 3000
+      });
+    } finally {
+      setLoadingFiles(false);
     }
   };
 
@@ -141,9 +200,20 @@ export default function AgentManager() {
     <Box>
       <Flex justify="space-between" align="center" mb={6}>
         <Heading>Agent Management</Heading>
-        <Button leftIcon={<FiPlus />} colorScheme="blue" onClick={onOpen}>
-          Create Agent
-        </Button>
+        <HStack spacing={3}>
+          <Button 
+            leftIcon={<FiUpload />} 
+            colorScheme="green" 
+            variant="outline"
+            onClick={loadAgentsFromFiles}
+            isLoading={loadingFiles}
+          >
+            Load from Files
+          </Button>
+          <Button leftIcon={<FiPlus />} colorScheme="blue" onClick={onOpen}>
+            Create Agent
+          </Button>
+        </HStack>
       </Flex>
 
       {agents.length === 0 ? (
