@@ -791,126 +791,494 @@ async def analyze_workflow_requirements(
 ):
     """Analyze and recommend the best workflow pattern for given agents and tasks."""
     try:
+        # Enhanced input validation
+        if not isinstance(request, dict):
+            raise HTTPException(status_code=400, detail="Request body must be a JSON object")
+        
         agents_ids = request.get("agents_ids", [])
         task_ids = request.get("task_ids", [])
         user_objective = request.get("user_objective", "")
         
+        # Validate required fields
+        if not agents_ids:
+            raise HTTPException(status_code=400, detail="agents_ids is required and cannot be empty")
+        if not task_ids:
+            raise HTTPException(status_code=400, detail="task_ids is required and cannot be empty")
+        
+        # Validate agent and task IDs exist
         agents = db.query(Agent).filter(Agent.id.in_(agents_ids)).all()
+        if len(agents) != len(agents_ids):
+            missing_agents = set(agents_ids) - {a.id for a in agents}
+            raise HTTPException(status_code=404, detail=f"Agents not found: {list(missing_agents)}")
+        
         tasks = db.query(Task).filter(Task.id.in_(task_ids)).all()
+        if len(tasks) != len(task_ids):
+            missing_tasks = set(task_ids) - {t.id for t in tasks}
+            raise HTTPException(status_code=404, detail=f"Tasks not found: {list(missing_tasks)}")
         
-        workflow_analysis = await advanced_orchestrator.analyze_workflow_requirements(
-            agents, tasks, user_objective
-        )
+        # Perform workflow analysis with error handling
+        try:
+            workflow_analysis = await advanced_orchestrator.analyze_workflow_requirements(
+                agents, tasks, user_objective
+            )
+        except Exception as analysis_error:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Workflow analysis failed: {str(analysis_error)}"
+            )
         
-        # Extract recommended workflow from the analysis result
+        # Enhanced response formatting
+        recommended_workflow = "parallel"  # default fallback
         if hasattr(workflow_analysis, 'recommended_workflow'):
-            recommended_workflow = workflow_analysis.recommended_workflow.value if hasattr(workflow_analysis.recommended_workflow, 'value') else str(workflow_analysis.recommended_workflow)
-        else:
-            recommended_workflow = "parallel"  # default fallback
+            if hasattr(workflow_analysis.recommended_workflow, 'value'):
+                recommended_workflow = workflow_analysis.recommended_workflow.value
+            else:
+                recommended_workflow = str(workflow_analysis.recommended_workflow)
         
-        return {
-            "recommended_workflow": recommended_workflow,
-            "analysis": {
-                "agent_count": len(agents),
-                "task_count": len(tasks),
-                "has_dependencies": any("depends" in (task.description or "").lower() for task in tasks),
-                "user_objective": user_objective
-            }
+        response = {
+            "success": True,
+            "data": {
+                "recommended_workflow": recommended_workflow,
+                "confidence_score": getattr(workflow_analysis, 'confidence_score', 0.8),
+                "reasoning": getattr(workflow_analysis, 'reasoning', 'Analysis completed successfully'),
+                "analysis": {
+                    "agent_count": len(agents),
+                    "task_count": len(tasks),
+                    "has_dependencies": any("depends" in (task.description or "").lower() for task in tasks),
+                    "user_objective": user_objective,
+                    "agent_compatibility": getattr(workflow_analysis, 'agent_compatibility', {}),
+                    "estimated_duration": getattr(workflow_analysis, 'estimated_duration', None),
+                    "risk_factors": getattr(workflow_analysis, 'risk_factors', []),
+                    "optimization_suggestions": getattr(workflow_analysis, 'optimization_suggestions', [])
+                }
+            },
+            "timestamp": datetime.utcnow().isoformat(),
+            "execution_time_ms": None  # Would need timing implementation
         }
+        
+        return response
+        
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=f"Validation error: {str(ve)}")
     except Exception as e:
-        print(f"ERROR in analyze_workflow_requirements: {e}")
+        # Enhanced error logging
         import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+        error_id = str(uuid.uuid4())[:8]
+        print(f"[ERROR-{error_id}] analyze_workflow_requirements failed: {str(e)}")
+        print(f"[ERROR-{error_id}] Traceback: {traceback.format_exc()}")
+        
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": {
+                    "code": "WORKFLOW_ANALYSIS_FAILED",
+                    "message": "An unexpected error occurred during workflow analysis",
+                    "details": str(e),
+                    "error_id": error_id,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            }
+        )
 
 @app.post("/api/workflows/patterns")
 async def create_workflow_pattern(
     request: Dict[str, Any],
     db: Session = Depends(get_db)
 ):
-    """Create an advanced workflow pattern."""
-    from models import WorkflowPattern
-    
-    name = request.get("name", "")
-    description = request.get("description", "")
-    agent_ids = request.get("agent_ids", [])
-    task_ids = request.get("task_ids", [])
-    user_objective = request.get("user_objective", "")
-    workflow_type = request.get("workflow_type")
-    
-    agents = db.query(Agent).filter(Agent.id.in_(agent_ids)).all()
-    tasks = db.query(Task).filter(Task.id.in_(task_ids)).all()
-    
-    if not agents or not tasks:
-        raise HTTPException(status_code=404, detail="Agents or tasks not found")
-    
-    # Create in-memory pattern for orchestrator
-    wf_type = None
-    if workflow_type:
+    """Create an advanced workflow pattern with enhanced validation and error handling."""
+    try:
+        from models import WorkflowPattern
+        
+        # Enhanced input validation
+        if not isinstance(request, dict):
+            raise HTTPException(status_code=400, detail="Request body must be a JSON object")
+        
+        name = request.get("name", "").strip()
+        description = request.get("description", "").strip()
+        agent_ids = request.get("agent_ids", [])
+        task_ids = request.get("task_ids", [])
+        user_objective = request.get("user_objective", "").strip()
+        workflow_type = request.get("workflow_type")
+        
+        # Validate required fields
+        if not name:
+            raise HTTPException(status_code=400, detail="name is required and cannot be empty")
+        if len(name) > 100:
+            raise HTTPException(status_code=400, detail="name must be 100 characters or less")
+        if not description:
+            raise HTTPException(status_code=400, detail="description is required and cannot be empty")
+        if not agent_ids:
+            raise HTTPException(status_code=400, detail="agent_ids is required and cannot be empty")
+        if not task_ids:
+            raise HTTPException(status_code=400, detail="task_ids is required and cannot be empty")
+        
+        # Check for duplicate pattern name
+        existing_pattern = db.query(WorkflowPattern).filter(WorkflowPattern.name == name).first()
+        if existing_pattern:
+            raise HTTPException(status_code=409, detail=f"Workflow pattern with name '{name}' already exists")
+        
+        # Validate agent and task existence
+        agents = db.query(Agent).filter(Agent.id.in_(agent_ids)).all()
+        if len(agents) != len(agent_ids):
+            missing_agents = set(agent_ids) - {a.id for a in agents}
+            raise HTTPException(status_code=404, detail=f"Agents not found: {list(missing_agents)}")
+        
+        tasks = db.query(Task).filter(Task.id.in_(task_ids)).all()
+        if len(tasks) != len(task_ids):
+            missing_tasks = set(task_ids) - {t.id for t in tasks}
+            raise HTTPException(status_code=404, detail=f"Tasks not found: {list(missing_tasks)}")
+        
+        # Validate workflow type
+        wf_type = None
+        if workflow_type:
+            try:
+                # Try direct mapping first
+                wf_type = WorkflowType(workflow_type.lower())
+            except ValueError:
+                # If that fails, try to find by uppercase name
+                for wf in WorkflowType:
+                    if wf.name == workflow_type.upper():
+                        wf_type = wf
+                        break
+                if not wf_type:
+                    valid_types = [wf.value for wf in WorkflowType]
+                    raise HTTPException(
+                        status_code=400, 
+                        detail=f"Invalid workflow type: {workflow_type}. Valid types: {valid_types}"
+                    )
+        
+        # Create pattern with orchestrator
         try:
-            # Try direct mapping first
-            wf_type = WorkflowType(workflow_type.lower())
-        except ValueError:
-            # If that fails, try to find by uppercase name
-            for wf in WorkflowType:
-                if wf.name == workflow_type.upper():
-                    wf_type = wf
-                    break
-            if not wf_type:
-                raise HTTPException(status_code=400, detail=f"Invalid workflow type: {workflow_type}")
-    pattern = await advanced_orchestrator.create_workflow_pattern(
-        name=name,
-        description=description,
-        agents=agents,
-        tasks=tasks,
-        workflow_type=wf_type
-    )
-    
-    # Save to database
-    from models import WorkflowPattern as DBWorkflowPattern
-    db_pattern = DBWorkflowPattern(
-        id=pattern.id,
-        name=name,
-        description=description,
-        workflow_type=workflow_type or "parallel",
-        agent_ids=agent_ids,
-        task_ids=task_ids,
-        user_objective=user_objective,
-        config={"pattern_data": "created_from_api"}
-    )
-    db.add(db_pattern)
-    db.commit()
-    db.refresh(db_pattern)
-    
-    return {
-        "id": db_pattern.id,
-        "name": db_pattern.name,
-        "description": db_pattern.description,
-        "workflow_type": db_pattern.workflow_type,
-        "agent_ids": db_pattern.agent_ids,
-        "task_ids": db_pattern.task_ids,
-        "user_objective": db_pattern.user_objective,
-        "status": db_pattern.status,
-        "created_at": db_pattern.created_at.isoformat()
-    }
+            pattern = await advanced_orchestrator.create_workflow_pattern(
+                name=name,
+                description=description,
+                agents=agents,
+                tasks=tasks,
+                workflow_type=wf_type
+            )
+        except Exception as pattern_error:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to create workflow pattern: {str(pattern_error)}"
+            )
+        
+        # Save to database with transaction
+        try:
+            from models import WorkflowPattern as DBWorkflowPattern
+            db_pattern = DBWorkflowPattern(
+                id=pattern.id,
+                name=name,
+                description=description,
+                workflow_type=workflow_type or "parallel",
+                agent_ids=agent_ids,
+                task_ids=task_ids,
+                user_objective=user_objective,
+                config={"pattern_data": "created_from_api", "version": "2.1"}
+            )
+            db.add(db_pattern)
+            db.commit()
+            db.refresh(db_pattern)
+        except Exception as db_error:
+            db.rollback()
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to save workflow pattern to database: {str(db_error)}"
+            )
+        
+        # Enhanced response formatting
+        response = {
+            "success": True,
+            "data": {
+                "id": db_pattern.id,
+                "name": db_pattern.name,
+                "description": db_pattern.description,
+                "workflow_type": db_pattern.workflow_type,
+                "agent_ids": db_pattern.agent_ids,
+                "task_ids": db_pattern.task_ids,
+                "user_objective": db_pattern.user_objective,
+                "status": db_pattern.status,
+                "created_at": db_pattern.created_at.isoformat(),
+                "agent_count": len(agents),
+                "task_count": len(tasks)
+            },
+            "message": f"Workflow pattern '{name}' created successfully",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        return response
+        
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions
+    except Exception as e:
+        db.rollback()
+        # Enhanced error logging
+        import traceback
+        error_id = str(uuid.uuid4())[:8]
+        print(f"[ERROR-{error_id}] create_workflow_pattern failed: {str(e)}")
+        print(f"[ERROR-{error_id}] Traceback: {traceback.format_exc()}")
+        
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": {
+                    "code": "PATTERN_CREATION_FAILED",
+                    "message": "An unexpected error occurred while creating workflow pattern",
+                    "details": str(e),
+                    "error_id": error_id,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            }
+        )
 
 @app.get("/api/workflows/patterns")
-async def list_workflow_patterns(db: Session = Depends(get_db)):
-    """List all workflow patterns."""
-    from models import WorkflowPattern
+async def list_workflow_patterns(
+    status: str = "active",
+    limit: int = 50,
+    offset: int = 0,
+    db: Session = Depends(get_db)
+):
+    """List workflow patterns with enhanced filtering and pagination."""
+    try:
+        from models import WorkflowPattern
+        
+        # Input validation
+        if limit < 1 or limit > 100:
+            raise HTTPException(status_code=400, detail="limit must be between 1 and 100")
+        if offset < 0:
+            raise HTTPException(status_code=400, detail="offset must be non-negative")
+        
+        valid_statuses = ["active", "inactive", "archived", "all"]
+        if status not in valid_statuses:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid status '{status}'. Valid values: {valid_statuses}"
+            )
+        
+        # Build query with filtering
+        query = db.query(WorkflowPattern)
+        if status != "all":
+            query = query.filter(WorkflowPattern.status == status)
+        
+        # Get total count for pagination
+        total_patterns = query.count()
+        
+        # Apply pagination
+        patterns = query.offset(offset).limit(limit).all()
+        
+        # Enhanced pattern data with agent/task details
+        enhanced_patterns = []
+        for pattern in patterns:
+            # Get agent and task counts
+            agent_count = len(pattern.agent_ids) if pattern.agent_ids else 0
+            task_count = len(pattern.task_ids) if pattern.task_ids else 0
+            
+            # Check if referenced agents/tasks still exist
+            existing_agents = 0
+            existing_tasks = 0
+            if pattern.agent_ids:
+                existing_agents = db.query(Agent).filter(Agent.id.in_(pattern.agent_ids)).count()
+            if pattern.task_ids:
+                existing_tasks = db.query(Task).filter(Task.id.in_(pattern.task_ids)).count()
+            
+            enhanced_pattern = {
+                "id": pattern.id,
+                "name": pattern.name,
+                "description": pattern.description,
+                "workflow_type": pattern.workflow_type,
+                "agent_ids": pattern.agent_ids or [],
+                "task_ids": pattern.task_ids or [],
+                "user_objective": pattern.user_objective,
+                "status": pattern.status,
+                "created_at": pattern.created_at.isoformat(),
+                "updated_at": pattern.updated_at.isoformat() if pattern.updated_at else None,
+                "metadata": {
+                    "agent_count": agent_count,
+                    "task_count": task_count,
+                    "existing_agents": existing_agents,
+                    "existing_tasks": existing_tasks,
+                    "integrity_check": {
+                        "agents_valid": existing_agents == agent_count,
+                        "tasks_valid": existing_tasks == task_count
+                    }
+                }
+            }
+            enhanced_patterns.append(enhanced_pattern)
+        
+        # Enhanced response with pagination metadata
+        response = {
+            "success": True,
+            "data": {
+                "patterns": enhanced_patterns,
+                "pagination": {
+                    "total": total_patterns,
+                    "limit": limit,
+                    "offset": offset,
+                    "has_more": (offset + limit) < total_patterns,
+                    "page": (offset // limit) + 1,
+                    "total_pages": (total_patterns + limit - 1) // limit
+                },
+                "summary": {
+                    "total_patterns": total_patterns,
+                    "returned_count": len(enhanced_patterns),
+                    "status_filter": status
+                }
+            },
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_id = str(uuid.uuid4())[:8]
+        print(f"[ERROR-{error_id}] list_workflow_patterns failed: {str(e)}")
+        
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": {
+                    "code": "PATTERN_LIST_FAILED",
+                    "message": "Failed to retrieve workflow patterns",
+                    "details": str(e),
+                    "error_id": error_id,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            }
+        )
+
+@app.delete("/api/workflows/patterns/{pattern_id}")
+async def delete_workflow_pattern(
+    pattern_id: str, 
+    force: bool = False,
+    db: Session = Depends(get_db)
+):
+    """Delete a workflow pattern with enhanced safety checks."""
+    from models import WorkflowPattern, WorkflowExecution
     
-    patterns = db.query(WorkflowPattern).filter(WorkflowPattern.status == "active").all()
-    return [{
-        "id": pattern.id,
-        "name": pattern.name,
-        "description": pattern.description,
-        "workflow_type": pattern.workflow_type,
-        "agent_ids": pattern.agent_ids,
-        "task_ids": pattern.task_ids,
-        "user_objective": pattern.user_objective,
-        "status": pattern.status,
-        "created_at": pattern.created_at.isoformat()
-    } for pattern in patterns]
+    # Input validation
+    if not pattern_id or not pattern_id.strip():
+        raise HTTPException(status_code=400, detail="pattern_id is required")
+    
+    try:
+        # Check if pattern exists
+        pattern = db.query(WorkflowPattern).filter(WorkflowPattern.id == pattern_id).first()
+        if not pattern:
+            raise HTTPException(status_code=404, detail=f"Workflow pattern with ID '{pattern_id}' not found")
+        
+        # Check for active executions unless force is used
+        active_executions = db.query(WorkflowExecution).filter(
+            WorkflowExecution.pattern_id == pattern_id,
+            WorkflowExecution.status.in_(["running", "starting", "paused"])
+        ).all()
+        
+        if active_executions and not force:
+            execution_ids = [ex.id for ex in active_executions]
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "success": False,
+                    "error": {
+                        "code": "PATTERN_HAS_ACTIVE_EXECUTIONS",
+                        "message": "Cannot delete pattern with active executions",
+                        "details": {
+                            "active_executions": len(active_executions),
+                            "execution_ids": execution_ids,
+                            "suggestion": "Cancel active executions first or use force=true parameter"
+                        },
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+                }
+            )
+        
+        # If force deletion, cancel active executions
+        cancelled_executions = []
+        if active_executions and force:
+            try:
+                for execution in active_executions:
+                    execution.status = "cancelled"
+                    execution.end_time = datetime.utcnow()
+                    execution.error_message = "Pattern deleted with force flag"
+                    cancelled_executions.append(execution.id)
+                db.commit()
+            except Exception as cancel_error:
+                db.rollback()
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to cancel active executions: {str(cancel_error)}"
+                )
+        
+        # Store pattern info for response
+        pattern_info = {
+            "id": pattern.id,
+            "name": pattern.name,
+            "workflow_type": pattern.workflow_type,
+            "agent_count": len(pattern.agent_ids) if pattern.agent_ids else 0,
+            "task_count": len(pattern.task_ids) if pattern.task_ids else 0,
+            "created_at": pattern.created_at.isoformat()
+        }
+        
+        # Delete from database
+        try:
+            db.delete(pattern)
+            db.commit()
+        except Exception as db_error:
+            db.rollback()
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to delete pattern from database: {str(db_error)}"
+            )
+        
+        # Clean up orchestrator memory
+        try:
+            if hasattr(advanced_orchestrator, 'workflow_patterns') and pattern_id in advanced_orchestrator.workflow_patterns:
+                del advanced_orchestrator.workflow_patterns[pattern_id]
+        except Exception as cleanup_error:
+            print(f"Warning: Failed to clean up orchestrator memory: {cleanup_error}")
+        
+        # Enhanced response
+        response = {
+            "success": True,
+            "data": {
+                "deleted_pattern": pattern_info,
+                "cleanup_summary": {
+                    "cancelled_executions": len(cancelled_executions),
+                    "execution_ids": cancelled_executions,
+                    "force_used": force
+                }
+            },
+            "message": f"Workflow pattern '{pattern_info['name']}' deleted successfully",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        error_id = str(uuid.uuid4())[:8]
+        print(f"[ERROR-{error_id}] delete_workflow_pattern failed: {str(e)}")
+        
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": {
+                    "code": "PATTERN_DELETION_FAILED",
+                    "message": "Failed to delete workflow pattern",
+                    "details": str(e),
+                    "error_id": error_id,
+                    "pattern_id": pattern_id,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            }
+        )
 
 @app.post("/api/workflows/execute/{pattern_id}")
 async def execute_workflow_pattern(
@@ -918,92 +1286,200 @@ async def execute_workflow_pattern(
     context: Dict[str, Any] = None,
     db: Session = Depends(get_db)
 ):
-    """Execute a workflow pattern with real-time monitoring."""
+    """Execute a workflow pattern with enhanced monitoring and error handling."""
     from models import WorkflowPattern, WorkflowExecution
     
+    # Input validation
+    if not pattern_id or not pattern_id.strip():
+        raise HTTPException(status_code=400, detail="pattern_id is required")
+    
+    execution_start_time = datetime.utcnow()
+    
     try:
-        # Get pattern from database
+        # Get pattern from database with validation
         db_pattern = db.query(WorkflowPattern).filter(WorkflowPattern.id == pattern_id).first()
         if not db_pattern:
-            raise HTTPException(status_code=404, detail="Workflow pattern not found")
+            raise HTTPException(status_code=404, detail=f"Workflow pattern with ID '{pattern_id}' not found")
         
-        # Create workflow execution record
+        if db_pattern.status != "active":
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Cannot execute workflow pattern with status '{db_pattern.status}'. Status must be 'active'"
+            )
+        
+        # Validate agents and tasks exist
+        if not db_pattern.agent_ids:
+            raise HTTPException(status_code=400, detail="Workflow pattern has no associated agents")
+        if not db_pattern.task_ids:
+            raise HTTPException(status_code=400, detail="Workflow pattern has no associated tasks")
+        
+        agents = db.query(Agent).filter(Agent.id.in_(db_pattern.agent_ids)).all()
+        if len(agents) != len(db_pattern.agent_ids):
+            missing_agents = set(db_pattern.agent_ids) - {a.id for a in agents}
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Referenced agents not found: {list(missing_agents)}"
+            )
+        
+        tasks = db.query(Task).filter(Task.id.in_(db_pattern.task_ids)).all()
+        if len(tasks) != len(db_pattern.task_ids):
+            missing_tasks = set(db_pattern.task_ids) - {t.id for t in tasks}
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Referenced tasks not found: {list(missing_tasks)}"
+            )
+        
+        # Check for busy agents
+        busy_agents = [a for a in agents if a.status == AgentStatus.EXECUTING]
+        if busy_agents:
+            busy_agent_names = [a.name for a in busy_agents]
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot execute workflow: agents are busy: {busy_agent_names}"
+            )
+        
+        # Create workflow execution record with enhanced tracking
         workflow_execution = WorkflowExecution(
             id=str(uuid.uuid4()),
             pattern_id=pattern_id,
-            status="running"
+            status="starting",
+            start_time=execution_start_time,
+            progress_percentage=0.0,
+            execution_context=context or {},
+            agent_assignments=[{"agent_id": a.id, "agent_name": a.name} for a in agents],
+            task_assignments=[{"task_id": t.id, "task_title": t.title} for t in tasks]
         )
-        db.add(workflow_execution)
-        db.commit()
         
-        # Get agents and tasks for the pattern
-        from services.advanced_orchestrator import WorkflowPattern as OrchestratorPattern
+        try:
+            db.add(workflow_execution)
+            db.commit()
+            db.refresh(workflow_execution)
+        except Exception as db_error:
+            db.rollback()
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to create execution record: {str(db_error)}"
+            )
         
-        # Debug output to file
-        with open('/tmp/workflow_debug.log', 'a') as f:
-            f.write(f"DB Pattern agent_ids: {db_pattern.agent_ids}, type: {type(db_pattern.agent_ids)}\n")
-            f.write(f"DB Pattern task_ids: {db_pattern.task_ids}, type: {type(db_pattern.task_ids)}\n")
-        
-        agents = db.query(Agent).filter(Agent.id.in_(db_pattern.agent_ids)).all()
-        tasks = db.query(Task).filter(Task.id.in_(db_pattern.task_ids)).all()
-        
-        with open('/tmp/workflow_debug.log', 'a') as f:
-            f.write(f"Found {len(agents)} agents: {[a.name for a in agents]}\n")
-            f.write(f"Found {len(tasks)} tasks: {[t.title for t in tasks]}\n")
+        # Enhanced execution tracking
+        execution_log = {
+            "execution_id": workflow_execution.id,
+            "pattern_id": pattern_id,
+            "agent_count": len(agents),
+            "task_count": len(tasks),
+            "workflow_type": db_pattern.workflow_type,
+            "started_at": execution_start_time.isoformat()
+        }
         
         # Convert DB pattern to orchestrator pattern
-        orchestrator_pattern = OrchestratorPattern(
-            id=db_pattern.id,
-            name=db_pattern.name,
-            description=db_pattern.description,
-            workflow_type=db_pattern.workflow_type,
-            agents=[agent.id for agent in agents],
-            tasks=[task.id for task in tasks],
-            config=db_pattern.config or {},
-            created_at=db_pattern.created_at,
-            updated_at=datetime.utcnow()
-        )
+        try:
+            from services.advanced_orchestrator import WorkflowPattern as OrchestratorPattern
+            orchestrator_pattern = OrchestratorPattern(
+                id=db_pattern.id,
+                name=db_pattern.name,
+                description=db_pattern.description,
+                workflow_type=db_pattern.workflow_type,
+                agents=[agent.id for agent in agents],
+                tasks=[task.id for task in tasks],
+                config=db_pattern.config or {},
+                created_at=db_pattern.created_at,
+                updated_at=datetime.utcnow()
+            )
+        except Exception as pattern_error:
+            workflow_execution.status = "failed"
+            workflow_execution.error_message = f"Pattern conversion failed: {str(pattern_error)}"
+            workflow_execution.end_time = datetime.utcnow()
+            db.commit()
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to convert workflow pattern: {str(pattern_error)}"
+            )
         
         # Execute with orchestrator
+        workflow_execution.status = "running"
+        workflow_execution.progress_percentage = 10.0
+        db.commit()
+        
         try:
-            with open('/tmp/workflow_debug.log', 'a') as f:
-                f.write(f"Executing workflow with {len(agents)} agents and {len(tasks)} tasks\n")
-                for agent in agents:
-                    f.write(f"Agent: {agent.name}, description: {getattr(agent, 'description', 'None')}\n")
-                for task in tasks:
-                    f.write(f"Task: {task.title}, description: {getattr(task, 'description', 'None')}\n")
-                f.write(f"About to call advanced_orchestrator.execute_workflow\n")
-            
             execution = await advanced_orchestrator.execute_workflow(
                 orchestrator_pattern, agents, tasks, db
             )
             
-            with open('/tmp/workflow_debug.log', 'a') as f:
-                f.write(f"Orchestrator execution completed successfully\n")
-                
-        except Exception as ex:
-            with open('/tmp/workflow_debug.log', 'a') as f:
-                f.write(f"Orchestrator execution error: {str(ex)}\n")
-                import traceback
-                f.write(f"Traceback: {traceback.format_exc()}\n")
-            raise
+            # Update execution with results
+            workflow_execution.status = execution.status if hasattr(execution, 'status') else "completed"
+            workflow_execution.results = execution.dict() if hasattr(execution, 'dict') else {}
+            workflow_execution.progress_percentage = 100.0
+            workflow_execution.end_time = datetime.utcnow()
+            
+        except Exception as exec_error:
+            workflow_execution.status = "failed"
+            workflow_execution.error_message = str(exec_error)
+            workflow_execution.end_time = datetime.utcnow()
+            workflow_execution.progress_percentage = 0.0
+            db.commit()
+            
+            error_id = str(uuid.uuid4())[:8]
+            print(f"[ERROR-{error_id}] Workflow execution failed: {str(exec_error)}")
+            
+            raise HTTPException(
+                status_code=500,
+                detail=f"Workflow execution failed: {str(exec_error)} (Error ID: {error_id})"
+            )
         
-        # Update workflow execution status
-        workflow_execution.status = execution.status if hasattr(execution, 'status') else "completed"
-        workflow_execution.result = execution.dict() if hasattr(execution, 'dict') else {}
         db.commit()
         
-        return {
-            "id": workflow_execution.id,
-            "pattern_id": pattern_id,
-            "status": workflow_execution.status,
-            "result": workflow_execution.result or {},
-            "started_at": workflow_execution.start_time.isoformat() if workflow_execution.start_time else None
+        # Calculate execution duration
+        execution_duration = (workflow_execution.end_time - workflow_execution.start_time).total_seconds()
+        
+        # Enhanced response formatting
+        response = {
+            "success": True,
+            "data": {
+                "execution_id": workflow_execution.id,
+                "pattern_id": pattern_id,
+                "pattern_name": db_pattern.name,
+                "status": workflow_execution.status,
+                "progress_percentage": workflow_execution.progress_percentage,
+                "results": workflow_execution.results or {},
+                "execution_summary": {
+                    "agents_executed": len(agents),
+                    "tasks_processed": len(tasks),
+                    "workflow_type": db_pattern.workflow_type,
+                    "duration_seconds": execution_duration
+                },
+                "started_at": workflow_execution.start_time.isoformat(),
+                "completed_at": workflow_execution.end_time.isoformat() if workflow_execution.end_time else None
+            },
+            "message": f"Workflow pattern '{db_pattern.name}' executed successfully",
+            "timestamp": datetime.utcnow().isoformat()
         }
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        
+        return response
+        
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Execution failed: {str(e)}")
+        # Enhanced error logging and cleanup
+        db.rollback()
+        error_id = str(uuid.uuid4())[:8]
+        print(f"[ERROR-{error_id}] execute_workflow_pattern failed: {str(e)}")
+        import traceback
+        print(f"[ERROR-{error_id}] Traceback: {traceback.format_exc()}")
+        
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": {
+                    "code": "WORKFLOW_EXECUTION_FAILED",
+                    "message": "An unexpected error occurred during workflow execution",
+                    "details": str(e),
+                    "error_id": error_id,
+                    "pattern_id": pattern_id,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            }
+        )
 
 @app.get("/api/workflows/executions/{execution_id}")
 async def get_execution_status(execution_id: str):
@@ -1014,20 +1490,153 @@ async def get_execution_status(execution_id: str):
     return execution.dict()
 
 @app.get("/api/workflows/executions")
-async def list_active_executions(db: Session = Depends(get_db)):
-    """List all active workflow executions."""
-    from models import WorkflowExecution
-    
-    executions = db.query(WorkflowExecution).filter(WorkflowExecution.status.in_(["running", "paused"])).all()
-    return [{
-        "id": execution.id,
-        "pattern_id": execution.pattern_id,
-        "status": execution.status,
-        "progress": execution.progress_percentage,
-        "results": execution.results,
-        "started_at": execution.start_time.isoformat(),
-        "completed_at": execution.end_time.isoformat() if execution.end_time else None
-    } for execution in executions]
+async def list_workflow_executions(
+    status: str = "all",
+    pattern_id: str = None,
+    limit: int = 20,
+    offset: int = 0,
+    include_details: bool = False,
+    db: Session = Depends(get_db)
+):
+    """List workflow executions with enhanced filtering and monitoring."""
+    try:
+        from models import WorkflowExecution, WorkflowPattern
+        
+        # Input validation
+        if limit < 1 or limit > 100:
+            raise HTTPException(status_code=400, detail="limit must be between 1 and 100")
+        if offset < 0:
+            raise HTTPException(status_code=400, detail="offset must be non-negative")
+        
+        valid_statuses = ["all", "running", "paused", "completed", "failed", "cancelled", "starting"]
+        if status not in valid_statuses:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid status '{status}'. Valid values: {valid_statuses}"
+            )
+        
+        # Build query with filtering
+        query = db.query(WorkflowExecution)
+        
+        if status != "all":
+            if status == "active":
+                query = query.filter(WorkflowExecution.status.in_(["running", "paused", "starting"]))
+            else:
+                query = query.filter(WorkflowExecution.status == status)
+        
+        if pattern_id:
+            # Validate pattern exists
+            pattern = db.query(WorkflowPattern).filter(WorkflowPattern.id == pattern_id).first()
+            if not pattern:
+                raise HTTPException(status_code=404, detail=f"Pattern with ID '{pattern_id}' not found")
+            query = query.filter(WorkflowExecution.pattern_id == pattern_id)
+        
+        # Get total count for pagination
+        total_executions = query.count()
+        
+        # Apply pagination and ordering
+        executions = query.order_by(WorkflowExecution.start_time.desc()).offset(offset).limit(limit).all()
+        
+        # Enhanced execution data
+        enhanced_executions = []
+        for execution in executions:
+            # Calculate duration
+            duration_seconds = None
+            if execution.start_time:
+                end_time = execution.end_time or datetime.utcnow()
+                duration_seconds = (end_time - execution.start_time).total_seconds()
+            
+            # Get pattern info
+            pattern_info = None
+            if include_details and execution.pattern_id:
+                pattern = db.query(WorkflowPattern).filter(WorkflowPattern.id == execution.pattern_id).first()
+                if pattern:
+                    pattern_info = {
+                        "name": pattern.name,
+                        "workflow_type": pattern.workflow_type,
+                        "description": pattern.description
+                    }
+            
+            enhanced_execution = {
+                "id": execution.id,
+                "pattern_id": execution.pattern_id,
+                "status": execution.status,
+                "progress_percentage": execution.progress_percentage or 0.0,
+                "started_at": execution.start_time.isoformat() if execution.start_time else None,
+                "completed_at": execution.end_time.isoformat() if execution.end_time else None,
+                "duration_seconds": duration_seconds,
+                "error_message": getattr(execution, 'error_message', None),
+                "metadata": {
+                    "agent_count": len(getattr(execution, 'agent_assignments', []) or []),
+                    "task_count": len(getattr(execution, 'task_assignments', []) or []),
+                    "has_error": bool(getattr(execution, 'error_message', None)),
+                    "is_running": execution.status in ["running", "starting"],
+                    "is_complete": execution.status in ["completed", "failed", "cancelled"]
+                }
+            }
+            
+            # Add detailed info if requested
+            if include_details:
+                enhanced_execution["pattern_info"] = pattern_info
+                enhanced_execution["agent_assignments"] = getattr(execution, 'agent_assignments', []) or []
+                enhanced_execution["task_assignments"] = getattr(execution, 'task_assignments', []) or []
+                enhanced_execution["results"] = getattr(execution, 'results', {}) or {}
+                enhanced_execution["execution_context"] = getattr(execution, 'execution_context', {}) or {}
+            
+            enhanced_executions.append(enhanced_execution)
+        
+        # Calculate summary statistics
+        status_counts = {}
+        if status == "all":
+            for stat_status in ["running", "paused", "completed", "failed", "cancelled", "starting"]:
+                count = db.query(WorkflowExecution).filter(WorkflowExecution.status == stat_status).count()
+                status_counts[stat_status] = count
+        
+        # Enhanced response
+        response = {
+            "success": True,
+            "data": {
+                "executions": enhanced_executions,
+                "pagination": {
+                    "total": total_executions,
+                    "limit": limit,
+                    "offset": offset,
+                    "has_more": (offset + limit) < total_executions,
+                    "page": (offset // limit) + 1,
+                    "total_pages": (total_executions + limit - 1) // limit
+                },
+                "summary": {
+                    "total_executions": total_executions,
+                    "returned_count": len(enhanced_executions),
+                    "status_filter": status,
+                    "pattern_filter": pattern_id,
+                    "status_counts": status_counts if status == "all" else {}
+                }
+            },
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_id = str(uuid.uuid4())[:8]
+        print(f"[ERROR-{error_id}] list_workflow_executions failed: {str(e)}")
+        
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": {
+                    "code": "EXECUTION_LIST_FAILED",
+                    "message": "Failed to retrieve workflow executions",
+                    "details": str(e),
+                    "error_id": error_id,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            }
+        )
 
 @app.post("/api/workflows/executions/{execution_id}/abort")
 async def abort_workflow_execution(execution_id: str, db: Session = Depends(get_db)):
@@ -1071,16 +1680,278 @@ async def get_agent_communications(execution_id: str):
 
 @app.get("/api/workflows/types")
 async def get_workflow_types():
-    """Get available workflow types and their descriptions."""
-    return {
-        "SEQUENTIAL": "Execute tasks one after another in order",
-        "PARALLEL": "Execute independent tasks simultaneously", 
-        "ORCHESTRATOR": "Dynamic planning and coordination of complex workflows",
-        "ROUTER": "Route tasks to the most suitable agents based on criteria",
-        "EVALUATOR_OPTIMIZER": "Iterative improvement through evaluation and optimization",
-        "SWARM": "Collaborative agent behavior with dynamic task assignment",
-        "ADAPTIVE": "Automatically adapt workflow pattern based on execution context"
-    }
+    """Get available workflow types and their descriptions with enhanced metadata."""
+    try:
+        workflow_types = {
+            "SEQUENTIAL": {
+                "name": "Sequential",
+                "description": "Execute tasks one after another in order",
+                "use_cases": ["Step-by-step processes", "Dependent tasks", "Pipeline workflows"],
+                "advantages": ["Clear order", "Predictable", "Easy to debug"],
+                "ideal_for": "Tasks with clear dependencies and sequential requirements"
+            },
+            "PARALLEL": {
+                "name": "Parallel",
+                "description": "Execute independent tasks simultaneously",
+                "use_cases": ["Independent tasks", "Batch processing", "High throughput"],
+                "advantages": ["Fast execution", "High throughput", "Resource efficiency"],
+                "ideal_for": "Independent tasks that can run concurrently"
+            },
+            "ORCHESTRATOR": {
+                "name": "Orchestrator",
+                "description": "Dynamic planning and coordination of complex workflows",
+                "use_cases": ["Complex coordination", "Dynamic planning", "Multi-agent systems"],
+                "advantages": ["Intelligent coordination", "Adaptive", "Scalable"],
+                "ideal_for": "Complex workflows requiring intelligent coordination"
+            },
+            "ROUTER": {
+                "name": "Router",
+                "description": "Route tasks to the most suitable agents based on criteria",
+                "use_cases": ["Load balancing", "Skill-based routing", "Optimization"],
+                "advantages": ["Optimal assignment", "Load balancing", "Skill matching"],
+                "ideal_for": "Environments with specialized agents and varied tasks"
+            },
+            "EVALUATOR_OPTIMIZER": {
+                "name": "Evaluator-Optimizer",
+                "description": "Iterative improvement through evaluation and optimization",
+                "use_cases": ["Quality improvement", "Iterative refinement", "Review cycles"],
+                "advantages": ["High quality", "Continuous improvement", "Error correction"],
+                "ideal_for": "Quality-critical tasks requiring iterative improvement"
+            },
+            "SWARM": {
+                "name": "Swarm",
+                "description": "Collaborative agent behavior with dynamic task assignment",
+                "use_cases": ["Emergent behaviors", "Collaborative problem solving", "Adaptive systems"],
+                "advantages": ["Collective intelligence", "Emergent solutions", "Resilient"],
+                "ideal_for": "Complex problems requiring collective intelligence"
+            },
+            "ADAPTIVE": {
+                "name": "Adaptive",
+                "description": "Automatically adapt workflow pattern based on execution context",
+                "use_cases": ["Dynamic environments", "Unknown requirements", "Learning systems"],
+                "advantages": ["Self-optimizing", "Context-aware", "Flexible"],
+                "ideal_for": "Dynamic environments with changing requirements"
+            }
+        }
+        
+        response = {
+            "success": True,
+            "data": {
+                "workflow_types": workflow_types,
+                "summary": {
+                    "total_types": len(workflow_types),
+                    "recommended_default": "ORCHESTRATOR",
+                    "most_versatile": "ADAPTIVE",
+                    "fastest_execution": "PARALLEL"
+                }
+            },
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        return response
+        
+    except Exception as e:
+        error_id = str(uuid.uuid4())[:8]
+        print(f"[ERROR-{error_id}] get_workflow_types failed: {str(e)}")
+        
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": {
+                    "code": "WORKFLOW_TYPES_FAILED",
+                    "message": "Failed to retrieve workflow types",
+                    "details": str(e),
+                    "error_id": error_id,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            }
+        )
+
+
+@app.get("/api/workflows/health")
+async def get_workflow_system_health(db: Session = Depends(get_db)):
+    """Comprehensive health check for the workflow system."""
+    try:
+        from models import WorkflowPattern, WorkflowExecution
+        
+        health_check_start = datetime.utcnow()
+        health_data = {
+            "status": "healthy",
+            "checks": {},
+            "metrics": {},
+            "warnings": [],
+            "errors": []
+        }
+        
+        # Database connectivity check
+        try:
+            db.execute(text("SELECT 1"))
+            health_data["checks"]["database"] = {
+                "status": "healthy",
+                "response_time_ms": None
+            }
+        except Exception as db_error:
+            health_data["checks"]["database"] = {
+                "status": "unhealthy",
+                "error": str(db_error)
+            }
+            health_data["errors"].append(f"Database connectivity failed: {str(db_error)}")
+            health_data["status"] = "unhealthy"
+        
+        # Workflow pattern health
+        try:
+            total_patterns = db.query(WorkflowPattern).count()
+            active_patterns = db.query(WorkflowPattern).filter(WorkflowPattern.status == "active").count()
+            
+            health_data["checks"]["workflow_patterns"] = {
+                "status": "healthy",
+                "total_patterns": total_patterns,
+                "active_patterns": active_patterns
+            }
+            
+            if active_patterns == 0 and total_patterns > 0:
+                health_data["warnings"].append("No active workflow patterns found")
+                
+        except Exception as pattern_error:
+            health_data["checks"]["workflow_patterns"] = {
+                "status": "unhealthy",
+                "error": str(pattern_error)
+            }
+            health_data["errors"].append(f"Pattern check failed: {str(pattern_error)}")
+            health_data["status"] = "degraded" if health_data["status"] == "healthy" else "unhealthy"
+        
+        # Execution health
+        try:
+            total_executions = db.query(WorkflowExecution).count()
+            running_executions = db.query(WorkflowExecution).filter(
+                WorkflowExecution.status.in_(["running", "starting"])
+            ).count()
+            failed_executions = db.query(WorkflowExecution).filter(
+                WorkflowExecution.status == "failed"
+            ).count()
+            
+            # Check for stuck executions (running for > 1 hour)
+            one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+            stuck_executions = db.query(WorkflowExecution).filter(
+                WorkflowExecution.status.in_(["running", "starting"]),
+                WorkflowExecution.start_time < one_hour_ago
+            ).count()
+            
+            health_data["checks"]["executions"] = {
+                "status": "healthy",
+                "total_executions": total_executions,
+                "running_executions": running_executions,
+                "failed_executions": failed_executions,
+                "stuck_executions": stuck_executions
+            }
+            
+            if stuck_executions > 0:
+                health_data["warnings"].append(f"{stuck_executions} executions running for over 1 hour")
+                health_data["status"] = "degraded" if health_data["status"] == "healthy" else health_data["status"]
+            
+            if running_executions > 10:
+                health_data["warnings"].append(f"High number of running executions: {running_executions}")
+                
+        except Exception as exec_error:
+            health_data["checks"]["executions"] = {
+                "status": "unhealthy",
+                "error": str(exec_error)
+            }
+            health_data["errors"].append(f"Execution check failed: {str(exec_error)}")
+            health_data["status"] = "degraded" if health_data["status"] == "healthy" else "unhealthy"
+        
+        # Orchestrator health
+        try:
+            orchestrator_healthy = hasattr(advanced_orchestrator, 'active_executions')
+            active_orchestrator_executions = len(advanced_orchestrator.active_executions) if orchestrator_healthy else 0
+            
+            health_data["checks"]["orchestrator"] = {
+                "status": "healthy" if orchestrator_healthy else "unhealthy",
+                "active_executions": active_orchestrator_executions,
+                "initialized": orchestrator_healthy
+            }
+            
+            if not orchestrator_healthy:
+                health_data["errors"].append("Advanced orchestrator not properly initialized")
+                health_data["status"] = "degraded" if health_data["status"] == "healthy" else "unhealthy"
+                
+        except Exception as orch_error:
+            health_data["checks"]["orchestrator"] = {
+                "status": "unhealthy",
+                "error": str(orch_error)
+            }
+            health_data["errors"].append(f"Orchestrator check failed: {str(orch_error)}")
+            health_data["status"] = "degraded" if health_data["status"] == "healthy" else "unhealthy"
+        
+        # WebSocket health
+        try:
+            ws_connections = websocket_manager.get_connection_count() if websocket_manager else 0
+            health_data["checks"]["websocket"] = {
+                "status": "healthy",
+                "active_connections": ws_connections,
+                "manager_initialized": websocket_manager is not None
+            }
+        except Exception as ws_error:
+            health_data["checks"]["websocket"] = {
+                "status": "degraded",
+                "error": str(ws_error)
+            }
+            health_data["warnings"].append(f"WebSocket manager issue: {str(ws_error)}")
+        
+        # Calculate health check duration
+        health_check_duration = (datetime.utcnow() - health_check_start).total_seconds() * 1000
+        
+        # Overall metrics
+        health_data["metrics"] = {
+            "health_check_duration_ms": health_check_duration,
+            "timestamp": datetime.utcnow().isoformat(),
+            "uptime_status": "operational",
+            "system_load": "normal"  # Could be enhanced with actual metrics
+        }
+        
+        # Final status determination
+        if health_data["errors"]:
+            health_data["status"] = "unhealthy"
+        elif health_data["warnings"]:
+            health_data["status"] = "degraded"
+        
+        response_code = 200
+        if health_data["status"] == "degraded":
+            response_code = 200  # Still operational
+        elif health_data["status"] == "unhealthy":
+            response_code = 503  # Service unavailable
+        
+        return JSONResponse(
+            status_code=response_code,
+            content={
+                "success": True,
+                "data": health_data,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+        
+    except Exception as e:
+        error_id = str(uuid.uuid4())[:8]
+        print(f"[ERROR-{error_id}] workflow_health_check failed: {str(e)}")
+        
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "data": {
+                    "status": "unhealthy",
+                    "errors": [f"Health check system failure: {str(e)}"]
+                },
+                "error": {
+                    "code": "HEALTH_CHECK_FAILED",
+                    "message": "Workflow health check system failed",
+                    "details": str(e),
+                    "error_id": error_id,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            }
+        )
 
 # Health check endpoint
 @app.get("/health")

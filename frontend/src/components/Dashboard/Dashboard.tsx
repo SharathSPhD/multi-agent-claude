@@ -261,7 +261,31 @@ export default function Dashboard() {
       try {
         const executionsResponse = await fetch(`${getApiBase()}/api/execution/status`);
         const executionsData = executionsResponse.ok ? await executionsResponse.json() : [];
-        setExecutions(executionsData);
+        
+        // Process executions to parse agent responses from JSON results
+        const processedExecutions = executionsData.map((execution: any) => {
+          if (execution.output?.result && typeof execution.output.result === 'string') {
+            try {
+              // Try to parse JSON from the result string
+              const jsonMatch = execution.output.result.match(/```json\n([\s\S]*?)\n```/);
+              if (jsonMatch) {
+                const parsedResult = JSON.parse(jsonMatch[1]);
+                execution.agent_response = {
+                  analysis: parsedResult.analysis || '',
+                  approach: parsedResult.approach || '',
+                  implementation: parsedResult.implementation || '',
+                  results: parsedResult.results || '',
+                  recommendations: parsedResult.recommendations || ''
+                };
+              }
+            } catch (e) {
+              console.warn('Failed to parse execution result JSON:', e);
+            }
+          }
+          return execution;
+        });
+        
+        setExecutions(processedExecutions);
       } catch (e) {
         console.warn('Failed to fetch executions:', e);
         setExecutions([]);
@@ -313,7 +337,7 @@ export default function Dashboard() {
   }, []);
 
   const activeAgents = agents.filter(agent => agent.status === 'executing').length;
-  const runningTasks = tasks.filter(task => task.status === 'in_progress' || task.status === 'pending').length;
+  const runningTasks = tasks.filter(task => task.status === 'in_progress').length;
   const completedTasks = tasks.filter(task => task.status === 'completed').length;
 
   if (loading) {
@@ -813,7 +837,7 @@ export default function Dashboard() {
 
 
       {/* Warning for stuck executions */}
-      {executions.some(e => e.logs.length <= 1 && new Date(e.start_time).getTime() < Date.now() - 5 * 60 * 1000) && (
+      {executions.some(e => e.status !== 'completed' && e.logs.length <= 1 && new Date(e.start_time).getTime() < Date.now() - 5 * 60 * 1000) && (
         <Alert status="warning" mt={6}>
           <AlertIcon />
           <Box>
