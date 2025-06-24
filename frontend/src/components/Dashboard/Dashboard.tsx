@@ -81,8 +81,7 @@ export default function Dashboard() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [executions, setExecutions] = useState<Execution[]>([]);
-  const [workflowExecutions, setWorkflowExecutions] = useState<WorkflowExecution[]>([]);
-  const [workflowPatterns, setWorkflowPatterns] = useState<WorkflowPattern[]>([]);
+  const [activeExecutions, setActiveExecutions] = useState<any[]>([]);
   const [projectDirectory, setProjectDirectory] = useState('/mnt/e/Development/mcp_a2a/project_selfdevelop');
   const [directoryValid, setDirectoryValid] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -268,31 +267,33 @@ export default function Dashboard() {
         setExecutions([]);
       }
       
-      // Fetch workflow executions
+      // Combine all active executions (regular + workflow)
       try {
-        const workflowResponse = await fetch(`${getApiBase()}/api/workflows/executions`);
+        const [workflowResponse, executionResponse] = await Promise.all([
+          fetch(`${getApiBase()}/api/workflows/executions`),
+          fetch(`${getApiBase()}/api/execution/status`)
+        ]);
+        
         const workflowData = workflowResponse.ok ? await workflowResponse.json() : [];
-        setWorkflowExecutions(workflowData);
+        const executionData = executionResponse.ok ? await executionResponse.json() : [];
+        
+        // Combine both types with type indicator
+        const combined = [
+          ...workflowData.map((w: any) => ({ ...w, type: 'workflow' })),
+          ...executionData.filter((e: any) => e.status === 'running').map((e: any) => ({ ...e, type: 'execution' }))
+        ];
+        
+        setActiveExecutions(combined);
       } catch (e) {
-        console.warn('Failed to fetch workflow executions:', e);
-        setWorkflowExecutions([]);
-      }
-      
-      // Fetch workflow patterns
-      try {
-        const patternsResponse = await fetch(`${getApiBase()}/api/workflows/patterns`);
-        const patternsData = patternsResponse.ok ? await patternsResponse.json() : [];
-        setWorkflowPatterns(patternsData);
-      } catch (e) {
-        console.warn('Failed to fetch workflow patterns:', e);
-        setWorkflowPatterns([]);
+        console.warn('Failed to fetch active executions:', e);
+        setActiveExecutions([]);
       }
       
       console.log('Dashboard: Data fetched successfully', { 
         agents: agentsData.length, 
         tasks: tasksData.length,
         executions: executions.length,
-        workflows: workflowExecutions.length 
+        activeExecutions: activeExecutions.length 
       });
       setAgents(agentsData);
       setTasks(tasksData);
@@ -736,44 +737,71 @@ export default function Dashboard() {
       )}
 
       {/* Workflow Executions */}
-      {workflowExecutions.length > 0 && (
+      {/* Combined Active Executions */}
+      {activeExecutions.length > 0 && (
         <Card mt={6}>
           <CardHeader>
             <HStack>
-              <FiPlay />
-              <Heading size="md">Active Workflows</Heading>
-              <Badge colorScheme="purple">{workflowExecutions.length}</Badge>
+              <FiActivity />
+              <Heading size="md">Active Executions</Heading>
+              <Badge colorScheme="green">{activeExecutions.length}</Badge>
             </HStack>
           </CardHeader>
           <CardBody>
             <VStack spacing={4} align="stretch">
-              {workflowExecutions.map(workflow => (
-                <Card key={workflow.id} variant="outline" borderColor="purple.200">
+              {activeExecutions.map(execution => (
+                <Card key={execution.id} variant="outline" borderColor={execution.type === 'workflow' ? 'purple.200' : 'blue.200'}>
                   <CardBody>
                     <VStack align="stretch" spacing={3}>
                       <HStack justify="space-between">
                         <VStack align="start" spacing={0}>
-                          <Text fontWeight="bold">Workflow Execution</Text>
+                          <Text fontWeight="bold">
+                            {execution.type === 'workflow' ? 'Workflow' : 'Task'} Execution
+                          </Text>
                           <Text fontSize="sm" color="gray.600">
-                            ID: {workflow.id.substring(0, 8)}...
+                            ID: {execution.id.substring(0, 8)}...
                           </Text>
                         </VStack>
-                        <Badge colorScheme="purple">{workflow.status}</Badge>
+                        <HStack>
+                          <Badge colorScheme={execution.type === 'workflow' ? 'purple' : 'blue'}>
+                            {execution.type}
+                          </Badge>
+                          <Badge colorScheme="green">{execution.status}</Badge>
+                        </HStack>
                       </HStack>
                       
-                      <Box>
-                        <HStack justify="space-between" mb={2}>
-                          <Text fontSize="sm">Progress</Text>
-                          <Text fontSize="sm">{workflow.progress_percentage.toFixed(1)}%</Text>
-                        </HStack>
-                        <Progress value={workflow.progress_percentage} colorScheme="purple" />
-                      </Box>
-                      
-                      {workflow.current_step && (
-                        <Text fontSize="sm">
-                          <strong>Current Step:</strong> {workflow.current_step}
+                      <HStack justify="space-between">
+                        <Text fontSize="sm" color="gray.600">
+                          Started: {new Date(execution.start_time || execution.started_at).toLocaleString()}
                         </Text>
-                      )}
+                        <Button
+                          size="xs"
+                          colorScheme="red"
+                          leftIcon={<FiX />}
+                          onClick={async () => {
+                            try {
+                              const endpoint = execution.type === 'workflow' 
+                                ? `/api/workflows/executions/${execution.id}/abort`
+                                : `/api/execution/${execution.id}/abort`;
+                              await fetch(`${getApiBase()}${endpoint}`, { method: 'POST' });
+                              toast({
+                                title: 'Execution stopped',
+                                status: 'success',
+                                duration: 2000
+                              });
+                              fetchData();
+                            } catch (error) {
+                              toast({
+                                title: 'Failed to stop execution',
+                                status: 'error',
+                                duration: 2000
+                              });
+                            }
+                          }}
+                        >
+                          Stop
+                        </Button>
+                      </HStack>
                     </VStack>
                   </CardBody>
                 </Card>
@@ -783,91 +811,6 @@ export default function Dashboard() {
         </Card>
       )}
 
-      {/* Workflow Patterns */}
-      {workflowPatterns.length > 0 && (
-        <Card mt={6}>
-          <CardHeader>
-            <HStack>
-              <FiActivity />
-              <Heading size="md">Workflow Patterns</Heading>
-              <Badge colorScheme="blue">{workflowPatterns.length}</Badge>
-            </HStack>
-          </CardHeader>
-          <CardBody>
-            <VStack spacing={4} align="stretch">
-              {workflowPatterns.map(pattern => (
-                <Card key={pattern.id} variant="outline" borderColor="blue.200">
-                  <CardBody>
-                    <VStack align="stretch" spacing={3}>
-                      <HStack justify="space-between">
-                        <VStack align="start" spacing={0}>
-                          <Text fontWeight="bold">{pattern.name}</Text>
-                          <Text fontSize="sm" color="gray.600">
-                            {pattern.description}
-                          </Text>
-                        </VStack>
-                        <Badge colorScheme="blue">{pattern.workflow_type}</Badge>
-                      </HStack>
-                      
-                      <HStack spacing={4}>
-                        <HStack>
-                          <Text fontSize="sm" fontWeight="medium">Agents:</Text>
-                          <Badge colorScheme="green">{pattern.agent_ids?.length || 0}</Badge>
-                        </HStack>
-                        <HStack>
-                          <Text fontSize="sm" fontWeight="medium">Tasks:</Text>
-                          <Badge colorScheme="orange">{pattern.task_ids?.length || 0}</Badge>
-                        </HStack>
-                      </HStack>
-                      
-                      {pattern.user_objective && (
-                        <Text fontSize="sm" color="gray.700">
-                          <Text as="span" fontWeight="medium">Objective:</Text> {pattern.user_objective}
-                        </Text>
-                      )}
-                      
-                      <Text fontSize="xs" color="gray.500">
-                        Created: {new Date(pattern.created_at).toLocaleString()} • Status: {pattern.status}
-                      </Text>
-                      
-                      <Button 
-                        size="sm" 
-                        colorScheme="blue" 
-                        leftIcon={<FiPlay />}
-                        onClick={() => {
-                          // Execute workflow pattern
-                          fetch(`${getApiBase()}/api/workflows/execute/${pattern.id}`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({})
-                          }).then(() => {
-                            toast({
-                              title: 'Workflow execution started',
-                              description: `Started execution of ${pattern.name}`,
-                              status: 'success',
-                              duration: 3000
-                            });
-                            fetchData();
-                          }).catch(error => {
-                            toast({
-                              title: 'Execution failed',
-                              description: error.message,
-                              status: 'error',
-                              duration: 3000
-                            });
-                          });
-                        }}
-                      >
-                        Execute Pattern
-                      </Button>
-                    </VStack>
-                  </CardBody>
-                </Card>
-              ))}
-            </VStack>
-          </CardBody>
-        </Card>
-      )}
 
       {/* Warning for stuck executions */}
       {executions.some(e => e.logs.length <= 1 && new Date(e.start_time).getTime() < Date.now() - 5 * 60 * 1000) && (

@@ -310,7 +310,7 @@ export default function AdvancedOrchestrator() {
                   refreshExecutionDetails(exec.id);
                   onMonitorOpen();
                 }}>
-                  <TagLabel>{exec.progress_percentage.toFixed(0)}%</TagLabel>
+                  <TagLabel>{exec.status}</TagLabel>
                 </Tag>
               ))}
             </HStack>
@@ -320,7 +320,7 @@ export default function AdvancedOrchestrator() {
 
       {/* Workflow Patterns */}
       <SimpleGrid columns={{ base: 1, lg: 2, xl: 3 }} spacing={6} mb={6}>
-        {workflowPatterns.map(pattern => {
+        {(workflowPatterns || []).map(pattern => {
           const IconComponent = getWorkflowTypeIcon(pattern.workflow_type);
           return (
             <Card key={pattern.id} _hover={{ shadow: 'md' }}>
@@ -343,10 +343,10 @@ export default function AdvancedOrchestrator() {
                     <Text fontSize="xs" fontWeight="bold" mb={1}>Configuration:</Text>
                     <SimpleGrid columns={2} spacing={2}>
                       <Text fontSize="xs">
-                        <strong>Agents:</strong> {pattern.agents.length}
+                        <strong>Agents:</strong> {pattern.agents?.length || 0}
                       </Text>
                       <Text fontSize="xs">
-                        <strong>Tasks:</strong> {pattern.tasks.length}
+                        <strong>Tasks:</strong> {pattern.tasks?.length || 0}
                       </Text>
                       <Text fontSize="xs">
                         <strong>Iterations:</strong> {pattern.max_iterations}
@@ -357,11 +357,11 @@ export default function AdvancedOrchestrator() {
                     </SimpleGrid>
                   </Box>
 
-                  {Object.keys(pattern.dependencies).length > 0 && (
+                  {Object.keys(pattern.dependencies || {}).length > 0 && (
                     <Box>
                       <Text fontSize="xs" fontWeight="bold" mb={1}>Dependencies:</Text>
                       <Text fontSize="xs" color="gray.600">
-                        {Object.keys(pattern.dependencies).length} task dependencies defined
+                        {Object.keys(pattern.dependencies || {}).length} task dependencies defined
                       </Text>
                     </Box>
                   )}
@@ -595,30 +595,22 @@ export default function AdvancedOrchestrator() {
           <ModalBody pb={6}>
             {selectedExecution ? (
               <VStack spacing={6}>
-                {/* Progress Overview */}
+                {/* Execution Summary */}
                 <Card width="100%">
                   <CardBody>
-                    <VStack spacing={4}>
+                    <VStack spacing={3}>
                       <HStack justify="space-between" width="100%">
-                        <Text fontWeight="bold">Progress: {selectedExecution.progress_percentage.toFixed(1)}%</Text>
-                        <HStack>
-                          <Text fontSize="sm">
-                            Step {selectedExecution.current_step} of {selectedExecution.total_steps}
-                          </Text>
-                          {selectedExecution.status === 'running' && <Spinner size="sm" />}
-                        </HStack>
+                        <Text fontWeight="bold">Execution Summary</Text>
+                        <Badge colorScheme={getStatusColor(selectedExecution.status)}>
+                          {selectedExecution.status}
+                        </Badge>
                       </HStack>
-                      <Progress 
-                        value={selectedExecution.progress_percentage} 
-                        colorScheme={getStatusColor(selectedExecution.status)} 
-                        width="100%" 
-                        size="lg"
-                      />
-                      {selectedExecution.iteration_count > 0 && (
-                        <Text fontSize="sm" color="gray.600">
-                          Iteration {selectedExecution.iteration_count}
-                        </Text>
-                      )}
+                      <Text fontSize="sm" color="gray.600">
+                        ID: {selectedExecution.id}
+                      </Text>
+                      <Text fontSize="sm" color="gray.600">
+                        Started: {selectedExecution.started_at ? new Date(selectedExecution.started_at).toLocaleString() : 'N/A'}
+                      </Text>
                     </VStack>
                   </CardBody>
                 </Card>
@@ -727,9 +719,8 @@ export default function AdvancedOrchestrator() {
                               {execution.status}
                             </Badge>
                           </HStack>
-                          <Progress value={execution.progress_percentage} size="sm" width="100%" />
                           <Text fontSize="xs" color="gray.600">
-                            {execution.progress_percentage.toFixed(1)}% complete
+                            Started: {execution.started_at ? new Date(execution.started_at).toLocaleString() : 'N/A'}
                           </Text>
                         </VStack>
                       </CardBody>

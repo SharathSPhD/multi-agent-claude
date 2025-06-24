@@ -931,17 +931,62 @@ async def execute_workflow_pattern(
         workflow_execution = WorkflowExecution(
             id=str(uuid.uuid4()),
             pattern_id=pattern_id,
-            status="running",
-            context=context or {},
-            config=db_pattern.config
+            status="running"
         )
         db.add(workflow_execution)
         db.commit()
         
-        # Execute with orchestrator
-        execution = await advanced_orchestrator.execute_workflow_pattern(
-            pattern_id, db, context
+        # Get agents and tasks for the pattern
+        from services.advanced_orchestrator import WorkflowPattern as OrchestratorPattern
+        
+        # Debug output to file
+        with open('/tmp/workflow_debug.log', 'a') as f:
+            f.write(f"DB Pattern agent_ids: {db_pattern.agent_ids}, type: {type(db_pattern.agent_ids)}\n")
+            f.write(f"DB Pattern task_ids: {db_pattern.task_ids}, type: {type(db_pattern.task_ids)}\n")
+        
+        agents = db.query(Agent).filter(Agent.id.in_(db_pattern.agent_ids)).all()
+        tasks = db.query(Task).filter(Task.id.in_(db_pattern.task_ids)).all()
+        
+        with open('/tmp/workflow_debug.log', 'a') as f:
+            f.write(f"Found {len(agents)} agents: {[a.name for a in agents]}\n")
+            f.write(f"Found {len(tasks)} tasks: {[t.title for t in tasks]}\n")
+        
+        # Convert DB pattern to orchestrator pattern
+        orchestrator_pattern = OrchestratorPattern(
+            id=db_pattern.id,
+            name=db_pattern.name,
+            description=db_pattern.description,
+            workflow_type=db_pattern.workflow_type,
+            agents=[agent.id for agent in agents],
+            tasks=[task.id for task in tasks],
+            config=db_pattern.config or {},
+            created_at=db_pattern.created_at,
+            updated_at=datetime.utcnow()
         )
+        
+        # Execute with orchestrator
+        try:
+            with open('/tmp/workflow_debug.log', 'a') as f:
+                f.write(f"Executing workflow with {len(agents)} agents and {len(tasks)} tasks\n")
+                for agent in agents:
+                    f.write(f"Agent: {agent.name}, description: {getattr(agent, 'description', 'None')}\n")
+                for task in tasks:
+                    f.write(f"Task: {task.title}, description: {getattr(task, 'description', 'None')}\n")
+                f.write(f"About to call advanced_orchestrator.execute_workflow\n")
+            
+            execution = await advanced_orchestrator.execute_workflow(
+                orchestrator_pattern, agents, tasks, db
+            )
+            
+            with open('/tmp/workflow_debug.log', 'a') as f:
+                f.write(f"Orchestrator execution completed successfully\n")
+                
+        except Exception as ex:
+            with open('/tmp/workflow_debug.log', 'a') as f:
+                f.write(f"Orchestrator execution error: {str(ex)}\n")
+                import traceback
+                f.write(f"Traceback: {traceback.format_exc()}\n")
+            raise
         
         # Update workflow execution status
         workflow_execution.status = execution.status if hasattr(execution, 'status') else "completed"
@@ -952,9 +997,8 @@ async def execute_workflow_pattern(
             "id": workflow_execution.id,
             "pattern_id": pattern_id,
             "status": workflow_execution.status,
-            "context": workflow_execution.context,
-            "result": workflow_execution.result,
-            "started_at": workflow_execution.started_at.isoformat()
+            "result": workflow_execution.result or {},
+            "started_at": workflow_execution.start_time.isoformat() if workflow_execution.start_time else None
         }
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -979,11 +1023,45 @@ async def list_active_executions(db: Session = Depends(get_db)):
         "id": execution.id,
         "pattern_id": execution.pattern_id,
         "status": execution.status,
-        "context": execution.context,
-        "result": execution.result,
-        "started_at": execution.started_at.isoformat(),
-        "completed_at": execution.completed_at.isoformat() if execution.completed_at else None
+        "progress": execution.progress_percentage,
+        "results": execution.results,
+        "started_at": execution.start_time.isoformat(),
+        "completed_at": execution.end_time.isoformat() if execution.end_time else None
     } for execution in executions]
+
+@app.post("/api/workflows/executions/{execution_id}/abort")
+async def abort_workflow_execution(execution_id: str, db: Session = Depends(get_db)):
+    """Abort a running workflow execution."""
+    from models import WorkflowExecution
+    
+    try:
+        # Find the execution
+        execution = db.query(WorkflowExecution).filter(WorkflowExecution.id == execution_id).first()
+        if not execution:
+            raise HTTPException(status_code=404, detail="Workflow execution not found")
+        
+        if execution.status not in ["running", "paused"]:
+            raise HTTPException(status_code=400, detail=f"Cannot abort execution with status: {execution.status}")
+        
+        # Update status to cancelled
+        execution.status = "cancelled"
+        execution.end_time = datetime.utcnow()
+        
+        # Try to stop the orchestrator execution if it's running
+        try:
+            advanced_orchestrator.stop_execution(execution_id)
+        except Exception as e:
+            print(f"Warning: Could not stop orchestrator execution {execution_id}: {e}")
+        
+        db.commit()
+        
+        return {"message": "Workflow execution aborted successfully", "execution_id": execution_id}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to abort workflow execution: {str(e)}")
 
 @app.get("/api/workflows/communications/{execution_id}")
 async def get_agent_communications(execution_id: str):
@@ -1161,6 +1239,210 @@ async def get_directory_info(directory: str = "./"):
         }
     except Exception as e:
         return {"exists": False, "error": str(e)}
+
+
+# System Metrics Endpoint
+@app.get("/api/system/metrics")
+async def get_system_metrics(db: Session = Depends(get_db)):
+    """Get comprehensive system metrics including memory, CPU, connections, and database performance."""
+    import sys
+    import os
+    import platform
+    import shutil
+    import time
+    from datetime import datetime
+    
+    # Check if psutil is available
+    try:
+        import psutil
+        PSUTIL_AVAILABLE = True
+    except ImportError:
+        PSUTIL_AVAILABLE = False
+    
+    def get_memory_usage():
+        """Get memory usage statistics."""
+        if PSUTIL_AVAILABLE:
+            memory = psutil.virtual_memory()
+            return {
+                "total_mb": round(memory.total / (1024 * 1024), 2),
+                "available_mb": round(memory.available / (1024 * 1024), 2),
+                "used_mb": round(memory.used / (1024 * 1024), 2),
+                "percentage": memory.percent,
+                "free_mb": round(memory.free / (1024 * 1024), 2)
+            }
+        else:
+            # Fallback using /proc/meminfo on Linux systems
+            try:
+                with open('/proc/meminfo', 'r') as f:
+                    meminfo = f.read()
+                
+                lines = meminfo.split('\n')
+                mem_dict = {}
+                for line in lines:
+                    if ':' in line:
+                        key, value = line.split(':', 1)
+                        mem_dict[key.strip()] = value.strip()
+                
+                total_kb = int(mem_dict.get('MemTotal', '0').split()[0])
+                free_kb = int(mem_dict.get('MemFree', '0').split()[0])
+                available_kb = int(mem_dict.get('MemAvailable', str(free_kb)).split()[0])
+                used_kb = total_kb - free_kb
+                
+                return {
+                    "total_mb": round(total_kb / 1024, 2),
+                    "available_mb": round(available_kb / 1024, 2),
+                    "used_mb": round(used_kb / 1024, 2),
+                    "percentage": round((used_kb / total_kb) * 100, 2) if total_kb > 0 else 0,
+                    "free_mb": round(free_kb / 1024, 2)
+                }
+            except Exception as e:
+                return {"error": f"Cannot read memory info: {str(e)}"}
+    
+    def get_cpu_usage():
+        """Get CPU usage statistics."""
+        if PSUTIL_AVAILABLE:
+            cpu_percent = psutil.cpu_percent(interval=0.1)
+            cpu_count = psutil.cpu_count()
+            cpu_freq = psutil.cpu_freq()
+            
+            return {
+                "percentage": cpu_percent,
+                "cores": {
+                    "physical": psutil.cpu_count(logical=False),
+                    "logical": cpu_count
+                },
+                "frequency": {
+                    "current_mhz": round(cpu_freq.current, 2) if cpu_freq else None,
+                    "min_mhz": round(cpu_freq.min, 2) if cpu_freq else None,
+                    "max_mhz": round(cpu_freq.max, 2) if cpu_freq else None
+                }
+            }
+        else:
+            # Fallback using load average
+            try:
+                cpu_count = os.cpu_count() or 1
+                try:
+                    with open('/proc/loadavg', 'r') as f:
+                        load_avg = float(f.read().split()[0])
+                    cpu_percentage = min(100, (load_avg / cpu_count) * 100)
+                except:
+                    cpu_percentage = 0
+                
+                return {
+                    "percentage": round(cpu_percentage, 2),
+                    "cores": {"physical": cpu_count, "logical": cpu_count},
+                    "frequency": {"current_mhz": None, "min_mhz": None, "max_mhz": None}
+                }
+            except Exception as e:
+                return {"error": f"Cannot read CPU info: {str(e)}"}
+    
+    def get_active_connections():
+        """Get active network connections."""
+        if PSUTIL_AVAILABLE:
+            try:
+                connections = psutil.net_connections()
+                established = len([c for c in connections if c.status == psutil.CONN_ESTABLISHED])
+                listening = len([c for c in connections if c.status == psutil.CONN_LISTEN])
+                
+                return {
+                    "total": len(connections),
+                    "established": established,
+                    "listening": listening
+                }
+            except Exception:
+                return {"total": 0, "established": 0, "listening": 0, "error": "Permission denied"}
+        else:
+            # Simplified fallback
+            return {"total": 0, "established": 0, "listening": 0, "note": "Limited connection info without psutil"}
+    
+    def get_disk_usage():
+        """Get disk usage statistics."""
+        try:
+            if PSUTIL_AVAILABLE:
+                disk = psutil.disk_usage('/')
+                return {
+                    "total_gb": round(disk.total / (1024**3), 2),
+                    "used_gb": round(disk.used / (1024**3), 2),
+                    "free_gb": round(disk.free / (1024**3), 2),
+                    "percentage": round((disk.used / disk.total) * 100, 2)
+                }
+            else:
+                disk = shutil.disk_usage('/')
+                return {
+                    "total_gb": round(disk.total / (1024**3), 2),
+                    "used_gb": round((disk.total - disk.free) / (1024**3), 2),
+                    "free_gb": round(disk.free / (1024**3), 2),
+                    "percentage": round(((disk.total - disk.free) / disk.total) * 100, 2)
+                }
+        except Exception as e:
+            return {"error": f"Cannot read disk info: {str(e)}"}
+    
+    def get_database_performance():
+        """Get database performance metrics."""
+        try:
+            start_time = time.time()
+            
+            # Basic connection test
+            db.execute(text("SELECT 1"))
+            connection_time = round((time.time() - start_time) * 1000, 2)
+            
+            # Count records in main tables
+            agent_count = db.execute(text("SELECT COUNT(*) FROM agents")).scalar()
+            task_count = db.execute(text("SELECT COUNT(*) FROM tasks")).scalar()
+            execution_count = db.execute(text("SELECT COUNT(*) FROM executions")).scalar()
+            
+            # Active executions
+            active_executions = db.execute(
+                text("SELECT COUNT(*) FROM executions WHERE status IN ('running', 'starting', 'paused')")
+            ).scalar()
+            
+            return {
+                "connection_time_ms": connection_time,
+                "table_counts": {
+                    "agents": agent_count,
+                    "tasks": task_count,
+                    "executions": execution_count
+                },
+                "active_executions": active_executions,
+                "status": "healthy"
+            }
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+    
+    def get_system_info():
+        """Get general system information."""
+        try:
+            return {
+                "hostname": platform.node(),
+                "platform": platform.system(),
+                "architecture": platform.machine(),
+                "python_version": platform.python_version(),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        except Exception as e:
+            return {"error": f"Cannot read system info: {str(e)}"}
+    
+    try:
+        return {
+            "timestamp": datetime.utcnow().isoformat(),
+            "memory": get_memory_usage(),
+            "cpu": get_cpu_usage(),
+            "disk": get_disk_usage(),
+            "network": {
+                "connections": get_active_connections()
+            },
+            "database": get_database_performance(),
+            "system": get_system_info(),
+            "websocket_connections": websocket_manager.get_connection_count(),
+            "psutil_available": PSUTIL_AVAILABLE,
+            "status": "healthy"
+        }
+    except Exception as e:
+        return {
+            "timestamp": datetime.utcnow().isoformat(),
+            "status": "error",
+            "error": str(e)
+        }
 
 
 if __name__ == "__main__":

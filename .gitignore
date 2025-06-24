@@ -156,3 +156,5 @@ scripts/
 CLAUDE.md
 STATUS*.md
 test_api*.py
+project_selfdevelop/
+BUGS*.md

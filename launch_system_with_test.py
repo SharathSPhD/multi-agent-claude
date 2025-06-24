@@ -287,7 +287,7 @@ def create_and_execute_tasks():
         print(f"{Colors.RED}❌ Error creating workflow: {e}{Colors.END}")
         return None
 
-def monitor_task_executions(executions):
+def execute_workflow_pattern(pattern):
     """Execute the workflow pattern"""
     print(f"\n{Colors.GREEN}⚡ Executing workflow pattern...{Colors.END}")
     
@@ -299,7 +299,7 @@ def monitor_task_executions(executions):
         if execute_response.status_code == 200:
             execution = execute_response.json()
             print(f"✅ Workflow execution started: {execution['id']}")
-            return execution
+            return execution['id']
         else:
             print(f"{Colors.RED}❌ Workflow execution failed: {execute_response.status_code}{Colors.END}")
             return None
@@ -468,16 +468,16 @@ def main():
         
         time.sleep(3)
         
-        # Execute tasks directly
-        executions = create_and_execute_tasks()
-        if not executions:
-            print(f"{Colors.RED}❌ Failed to execute tasks - exiting{Colors.END}")
+        # Create workflow pattern
+        pattern = create_and_execute_tasks()
+        if not pattern:
+            print(f"{Colors.RED}❌ Failed to create workflow pattern - exiting{Colors.END}")
             sys.exit(1)
         
-        # Monitor executions
-        execution_ids = monitor_task_executions(executions)
-        if execution_ids:
-            monitor_execution(execution_ids)
+        # Execute workflow
+        execution_id = execute_workflow_pattern(pattern)
+        if execution_id:
+            monitor_execution(execution_id)
         
         # Show final results
         print(f"\n{Colors.GREEN}{Colors.BOLD}🎉 Multi-Agent System Test Completed!{Colors.END}")

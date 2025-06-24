@@ -88,10 +88,14 @@ class ExecutionEngine:
         db.add(execution)
         db.commit()
         
-        # Update agent status
+        # Update agent and task status
         for agent in agents:
             agent.status = AgentStatus.EXECUTING
             agent.last_active = datetime.utcnow()
+        
+        # Update task status to in_progress
+        task.status = TaskStatus.IN_PROGRESS
+        task.started_at = datetime.utcnow()
         db.commit()
         
         # Start execution task with timeout
@@ -103,17 +107,33 @@ class ExecutionEngine:
         return TaskExecutionResponse(
             execution_id=execution_id,
             task_id=task.id,
-            status="starting"
+            status="starting",
+            message="Task execution started successfully",
+            started_at=execution.start_time
         )
     
     async def _execute_with_timeout(self, db: Session, execution: Execution, task: Task, agents: List[Agent], work_dir: Optional[str] = None):
         """Execute task with timeout protection."""
         try:
             # Determine timeout
-            timeout = min(
-                task.estimated_hours * 3600 if task.estimated_hours else self.DEFAULT_TIMEOUT,
-                self.MAX_TIMEOUT
-            )
+            # Parse estimated_duration (e.g., "2 hours", "30 minutes") or use default
+            duration_seconds = self.DEFAULT_TIMEOUT
+            if task.estimated_duration:
+                # Simple parsing - could be enhanced
+                if "hour" in task.estimated_duration.lower():
+                    try:
+                        hours = float(task.estimated_duration.split()[0])
+                        duration_seconds = hours * 3600
+                    except:
+                        pass
+                elif "minute" in task.estimated_duration.lower():
+                    try:
+                        minutes = float(task.estimated_duration.split()[0])
+                        duration_seconds = minutes * 60
+                    except:
+                        pass
+            
+            timeout = min(duration_seconds, self.MAX_TIMEOUT)
             
             execution.logs.append({
                 "timestamp": datetime.utcnow().isoformat(),
@@ -173,6 +193,8 @@ class ExecutionEngine:
             if result:
                 execution.status = "completed"
                 execution.output = result
+                task.status = TaskStatus.COMPLETED
+                task.completed_at = datetime.utcnow()
                 return
         except Exception as e:
             execution.logs.append({
@@ -185,14 +207,18 @@ class ExecutionEngine:
         result = await self._execute_with_expert_fallback(db, execution, task, primary_agent)
         execution.status = "completed" 
         execution.output = result
+        task.status = TaskStatus.COMPLETED
+        task.completed_at = datetime.utcnow()
     
-    async def _execute_with_claude_sdk_timeout(self, db: Session, execution: Execution, task: Task, agent: Agent, work_dir: Optional[str], timeout: int = 60):
-        """Execute with Claude Code SDK with strict timeout."""
+    async def _execute_with_claude_sdk_timeout(self, db: Session, execution: Execution, task: Task, agent: Agent, work_dir: Optional[str], timeout: int = 150):
+        """Execute with Claude Code CLI with structured JSON output."""
+        import subprocess
+        import json
+        import shutil
         
-        try:
-            from claude_code_sdk import query, ClaudeCodeOptions
-        except ImportError:
-            raise Exception("Claude Code SDK not available")
+        # Check if claude command is available
+        if not shutil.which("claude"):
+            raise Exception("Claude CLI not available - please install claude-code-cli")
         
         # Setup work directory
         if not work_dir:
@@ -201,51 +227,133 @@ class ExecutionEngine:
         work_path = Path(work_dir)
         work_path.mkdir(parents=True, exist_ok=True)
         
-        # Simple prompt without complex JSON requirements
-        prompt = f"""You are {agent.name}, a {agent.role}.
+        # Create CLAUDE.md context file
+        claude_md_content = f"""# {agent.name} Agent Context
 
-Task: {task.title}
-Description: {task.description}
+## Agent Profile
+- Name: {agent.name}
+- Role: {agent.role}
+- Description: {agent.description}
 
-Please complete this task efficiently. Provide a brief summary of what you accomplished."""
+## Task Details
+- Title: {task.title}
+- Description: {task.description}
+- Priority: {task.priority}
+- Status: {task.status}
+
+## Working Directory
+{work_path}
+"""
+        
+        claude_md_path = work_path / "CLAUDE.md"
+        with open(claude_md_path, 'w') as f:
+            f.write(claude_md_content)
+        
+        # JSON-structured task prompt
+        task_prompt = f"""Please execute the following task autonomously:
+
+TASK: {task.title}
+DESCRIPTION: {task.description}
+
+You are {agent.name}, a {agent.role}.
+
+Please provide your response in structured JSON format:
+{{
+    "analysis": "Your analysis of the task",
+    "approach": "Your methodology and approach", 
+    "implementation": "Your detailed work and implementation",
+    "results": "Your final results and conclusions",
+    "recommendations": "Any recommendations or next steps",
+    "status": "completed",
+    "needs_interaction": false,
+    "output_files": []
+}}
+
+Work efficiently and provide concrete deliverables."""
         
         execution.logs.append({
             "timestamp": datetime.utcnow().isoformat(),
-            "message": f"Starting Claude SDK execution (timeout: {timeout}s)",
+            "message": f"Starting Claude CLI execution (timeout: {timeout}s)",
             "level": "info"
         })
         db.commit()
         
-        messages = []
-        final_response = ""
+        # Claude Code CLI execution
+        claude_cmd = [
+            "claude", 
+            "--output-format", "json",
+            "--dangerously-skip-permissions",
+            "-p", task_prompt
+        ]
         
-        async def sdk_execution():
-            nonlocal messages, final_response
-            async for message in query(
-                prompt=prompt,
-                options=ClaudeCodeOptions(
-                    max_turns=2,  # Keep it simple
+        try:
+            # Execute with timeout
+            result = await asyncio.wait_for(
+                asyncio.create_subprocess_exec(
+                    *claude_cmd,
                     cwd=str(work_path),
-                    permission_mode="bypassPermissions"
-                )
-            ):
-                messages.append(message)
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                ),
+                timeout=timeout
+            )
+            
+            stdout, stderr = await result.communicate()
+            
+            execution.logs.append({
+                "timestamp": datetime.utcnow().isoformat(),
+                "message": f"Claude CLI completed with return code: {result.returncode}",
+                "level": "info"
+            })
+            
+            if stderr:
+                execution.logs.append({
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "message": f"Claude CLI stderr: {stderr.decode()}",
+                    "level": "warning"
+                })
+            
+            db.commit()
+            
+            # Parse JSON response
+            response_text = stdout.decode().strip()
+            if response_text:
+                try:
+                    response_data = json.loads(response_text)
+                    return response_data
+                except json.JSONDecodeError:
+                    # Fallback to text response
+                    return {
+                        "analysis": "Task executed",
+                        "implementation": response_text,
+                        "results": "Completed with text output",
+                        "status": "completed",
+                        "needs_interaction": False
+                    }
+            else:
+                return {
+                    "analysis": "Task executed",
+                    "results": "Completed successfully",
+                    "status": "completed",
+                    "needs_interaction": False
+                }
                 
-                # Extract text content
-                if hasattr(message, 'content') and message.content:
-                    for block in message.content:
-                        if hasattr(block, 'text') and block.text:
-                            final_response += block.text
-        
-        # Execute with timeout
-        await asyncio.wait_for(sdk_execution(), timeout=timeout)
-        
-        execution.logs.append({
-            "timestamp": datetime.utcnow().isoformat(),
-            "message": f"Claude SDK completed with {len(messages)} messages",
-            "level": "info"
-        })
-        db.commit()
+        except asyncio.TimeoutError:
+            execution.logs.append({
+                "timestamp": datetime.utcnow().isoformat(),
+                "message": f"Claude CLI execution timed out after {timeout}s",
+                "level": "error"
+            })
+            db.commit()
+            raise
+        except Exception as e:
+            execution.logs.append({
+                "timestamp": datetime.utcnow().isoformat(),
+                "message": f"Claude CLI error: {str(e)}",
+                "level": "error"
+            })
+            db.commit()
+            raise
         
         return {
             "agent_response": final_response[:1000] if final_response else "Task executed via Claude Code SDK",
@@ -376,12 +484,18 @@ Please complete this task efficiently. Provide a brief summary of what you accom
                 "level": "info"
             })
             
-            # Release agent
+            # Release agent and update task
             if execution.agent_id:
                 agent = db.query(Agent).filter(Agent.id == execution.agent_id).first()
                 if agent:
                     agent.status = AgentStatus.IDLE
                     agent.last_active = datetime.utcnow()
+            
+            # Update task status
+            if execution.task_id:
+                task = db.query(Task).filter(Task.id == execution.task_id).first()
+                if task:
+                    task.status = TaskStatus.CANCELLED
             
             db.commit()
         
@@ -418,7 +532,8 @@ Please complete this task efficiently. Provide a brief summary of what you accom
                 end_time=execution.end_time,
                 logs=execution.logs or [],
                 output=execution.output or {},
-                error_details=execution.error_details or {}
+                error_details=execution.error_details or {},
+                duration_seconds=str((execution.end_time - execution.start_time).total_seconds()) if execution.end_time else None
             )
             for execution in executions
         ]

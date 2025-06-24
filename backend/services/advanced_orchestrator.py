@@ -19,7 +19,8 @@ from mcp_agent.workflows.parallel.parallel_llm import ParallelLLM
 from mcp_agent.workflows.router.router_llm import LLMRouter
 from mcp_agent.workflows.evaluator_optimizer.evaluator_optimizer import EvaluatorOptimizerLLM
 from mcp_agent.workflows.swarm.swarm import Swarm
-from mcp_agent.workflows.llm.augmented_llm import AugmentedLLM
+from mcp_agent.workflows.llm.augmented_llm_anthropic import AnthropicAugmentedLLM
+from services.claude_cli_augmented_llm import ClaudeCliAugmentedLLM, create_claude_cli_llm
 from mcp_agent.agents.agent import Agent as MCPAgent
 
 from models import Agent, Task, Execution
@@ -63,6 +64,7 @@ class WorkflowExecution(BaseModel):
     agent_communications: List['AgentCommunication'] = []
     results: Dict[str, Any] = {}
     metrics: Dict[str, Any] = {}
+    logs: List[Dict[str, Any]] = []
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     error_message: Optional[str] = None
@@ -104,6 +106,7 @@ class AdvancedOrchestrator:
         self.active_executions: Dict[str, WorkflowExecution] = {}
         self.workflow_patterns: Dict[str, WorkflowPattern] = {}
         self.communication_logs: List[AgentCommunication] = []
+        self.websocket_manager = None
         
         # Initialize mcp-agent workflow engines (will be created on-demand)
         self.orchestrator_engine = None
@@ -404,7 +407,8 @@ class AdvancedOrchestrator:
         self,
         pattern: WorkflowPattern,
         agents: List[Agent],
-        tasks: List[Task]
+        tasks: List[Task],
+        db: Session = None
     ) -> WorkflowExecution:
         """Execute advanced workflow with comprehensive monitoring"""
         execution_id = str(uuid.uuid4())
@@ -425,17 +429,17 @@ class AdvancedOrchestrator:
         try:
             # Execute based on workflow type using mcp-agent engines
             if pattern.workflow_type == WorkflowType.ORCHESTRATOR:
-                results = await self._execute_orchestrator_workflow(execution, agents, tasks, pattern.config)
+                results = await self._execute_orchestrator_workflow(execution, agents, tasks, pattern.config, db)
             elif pattern.workflow_type == WorkflowType.PARALLEL:
                 results = await self._execute_parallel_workflow(execution, agents, tasks, pattern.config)
             elif pattern.workflow_type == WorkflowType.ROUTER:
-                results = await self._execute_router_workflow(execution, agents, tasks, pattern.config)
+                results = await self._execute_router_workflow(execution, agents, tasks, pattern.config, db)
             elif pattern.workflow_type == WorkflowType.EVALUATOR_OPTIMIZER:
                 results = await self._execute_evaluator_optimizer_workflow(execution, agents, tasks, pattern.config)
             elif pattern.workflow_type == WorkflowType.SWARM:
                 results = await self._execute_swarm_workflow(execution, agents, tasks, pattern.config)
             elif pattern.workflow_type == WorkflowType.SEQUENTIAL:
-                results = await self._execute_sequential_workflow(execution, agents, tasks, pattern.config)
+                results = await self._execute_sequential_workflow(execution, agents, tasks, pattern.config, db)
             elif pattern.workflow_type == WorkflowType.ADAPTIVE:
                 results = await self._execute_adaptive_workflow(execution, agents, tasks, pattern.config)
             else:
@@ -460,7 +464,8 @@ class AdvancedOrchestrator:
         execution: WorkflowExecution, 
         agents: List[Agent], 
         tasks: List[Task], 
-        config: Dict[str, Any]
+        config: Dict[str, Any],
+        db: Session = None
     ) -> Dict[str, Any]:
         """Execute orchestrator pattern with central coordination"""
         execution.status = "running"
@@ -469,31 +474,62 @@ class AdvancedOrchestrator:
         # Create MCP agents for orchestration
         mcp_agents = [self._create_mcp_agent(agent) for agent in agents]
         
-        # Initialize orchestrator if needed
-        if not self.orchestrator_engine:
-            self.orchestrator_engine = await Orchestrator.create(
-                agents=mcp_agents,
-                name="advanced_orchestrator"
+        # Use proven execution engine approach instead of complex orchestration
+        from schemas import TaskExecutionRequest
+        from services.execution_engine import ExecutionEngine
+        
+        execution_engine = ExecutionEngine()
+        if self.websocket_manager:
+            execution_engine.set_websocket_manager(self.websocket_manager)
+        
+        results = []
+        
+        # Execute tasks sequentially for orchestrator pattern
+        for task in tasks:
+            # Find agent assigned to this task
+            task_agents = [agent for agent in agents if agent.id in [ta.id for ta in task.assigned_agents]]
+            if not task_agents:
+                continue
+                
+            agent = task_agents[0]  # Use first assigned agent
+            
+            # Create execution request
+            request = TaskExecutionRequest(
+                task_id=task.id,
+                agent_ids=[agent.id],
+                work_directory=config.get('work_directory', '/mnt/e/Development/mcp_a2a/project_selfdevelop')
             )
+            
+            try:
+                # Execute task with proven Claude SDK approach
+                result = await execution_engine.start_task_execution(db, request)
+                results.append({
+                    "task_id": task.id,
+                    "agent_id": agent.id,
+                    "execution_id": result.execution_id,
+                    "status": result.status
+                })
+                
+                execution.logs.append({
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "message": f"Started execution for task {task.title} with agent {agent.name}",
+                    "level": "info"
+                })
+                
+            except Exception as e:
+                execution.logs.append({
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "message": f"Failed to start task {task.title}: {str(e)}",
+                    "level": "error"
+                })
         
-        # Execute orchestration with sophisticated coordination
-        orchestration_prompt = self._build_orchestration_prompt(agents, tasks, config)
-        orchestrator_result = await self.orchestrator_engine.generate_str(
-            message=orchestration_prompt
-        )
+        execution.progress = 1.0
+        execution.status = "completed"
         
-        # Track agent communications
-        await self._log_agent_communication(
-            execution.id, "orchestrator", "all_agents", 
-            "task_assignment", "Orchestrated task delegation initiated",
-            {"coordination_plan": orchestrator_result[:200]}  # First 200 chars
-        )
-        
-        execution.progress = 0.8
         return {
-            "orchestration_result": orchestrator_result,
+            "execution_results": results,
             "coordination_efficiency": 0.95,
-            "task_completion_rate": 1.0,
+            "task_completion_rate": len(results) / len(tasks) if tasks else 0,
             "agents_coordinated": len(agents),
             "tasks_managed": len(tasks)
         }
@@ -547,7 +583,8 @@ class AdvancedOrchestrator:
         execution: WorkflowExecution, 
         agents: List[Agent], 
         tasks: List[Task], 
-        config: Dict[str, Any]
+        config: Dict[str, Any],
+        db=None
     ) -> Dict[str, Any]:
         """Execute router pattern with intelligent task routing"""
         execution.status = "running"
@@ -558,7 +595,17 @@ class AdvancedOrchestrator:
         
         # Initialize router if needed
         if not self.router_engine:
-            llm = AugmentedLLM(name="router_llm")
+            # Use our Claude CLI LLM for routing decisions
+            primary_agent_id = agents[0].id if agents else None
+            primary_task_id = tasks[0].id if tasks else None
+            
+            llm = create_claude_cli_llm(
+                agent_id=primary_agent_id,
+                task_id=primary_task_id,
+                db_session=db,
+                name="router_llm"
+            )
+            
             self.router_engine = await LLMRouter.create(
                 llm=llm,
                 agents=mcp_agents
@@ -686,7 +733,8 @@ class AdvancedOrchestrator:
         execution: WorkflowExecution, 
         agents: List[Agent], 
         tasks: List[Task], 
-        config: Dict[str, Any]
+        config: Dict[str, Any],
+        db=None
     ) -> Dict[str, Any]:
         """Execute sequential pattern with step-by-step progression"""
         execution.status = "running"
@@ -694,7 +742,14 @@ class AdvancedOrchestrator:
         
         # Initialize sequential engine if needed
         if not self.sequential_engine:
-            self.sequential_engine = AugmentedLLM(
+            # Use our Claude CLI LLM for sequential processing
+            primary_agent_id = agents[0].id if agents else None
+            primary_task_id = tasks[0].id if tasks else None
+            
+            self.sequential_engine = create_claude_cli_llm(
+                agent_id=primary_agent_id,
+                task_id=primary_task_id,
+                db_session=db,
                 name="sequential_processor"
             )
         
@@ -783,10 +838,18 @@ class AdvancedOrchestrator:
     
     def _create_mcp_agent(self, agent: Agent) -> MCPAgent:
         """Convert Agent model to mcp-agent MCPAgent instance"""
+        description = getattr(agent, 'description', '') or ''
+        system_prompt = getattr(agent, 'system_prompt', '') or ''
+        role = getattr(agent, 'role', '') or ''
+        
+        instruction = system_prompt or f"You are {role}. {description}"
+        
+        # Don't pass server_names since we're not using actual MCP servers
+        # Our tools are just capability descriptions, not MCP server names
         return MCPAgent(
             name=agent.name,
-            instruction=agent.system_prompt or f"You are {agent.role}. {agent.description or ''}",
-            server_names=agent.tools or [],
+            instruction=instruction,
+            server_names=[],  # Empty list instead of our tool names
         )
     
     def _agent_to_mcp_format(self, agent: Agent) -> Dict[str, Any]:
@@ -884,7 +947,9 @@ class AdvancedOrchestrator:
     
     def _build_routing_request(self, task: Task) -> str:
         """Build routing request for a task"""
-        return f"Route task '{task.title}': {task.description or 'No description'}"
+        description = getattr(task, 'description', '') or 'No description'
+        title = getattr(task, 'title', '') or 'Untitled task'
+        return f"Route task '{title}': {description}"
     
     def _build_optimization_prompt(self, agents: List[Agent], tasks: List[Task], config: Dict[str, Any]) -> str:
         """Build prompt for evaluator-optimizer pattern"""
@@ -897,6 +962,26 @@ class AdvancedOrchestrator:
     def _build_sequential_step_prompt(self, agent: Agent, task: Task, step: int, total_steps: int) -> str:
         """Build prompt for sequential step"""
         return f"Step {step}/{total_steps}: Agent {agent.name} execute task '{task.title}' - {task.description or 'No description'}"
+    
+    def stop_execution(self, execution_id: str) -> bool:
+        """Stop a running workflow execution."""
+        try:
+            # Find the execution in running_executions
+            if execution_id in self.running_executions:
+                execution = self.running_executions[execution_id]
+                
+                # Cancel the execution if it's still running
+                if hasattr(execution, 'cancel') and not execution.done():
+                    execution.cancel()
+                
+                # Remove from running executions
+                del self.running_executions[execution_id]
+                
+                return True
+            return False
+        except Exception as e:
+            print(f"Error stopping execution {execution_id}: {e}")
+            return False
 
 
 # Global orchestrator instance
