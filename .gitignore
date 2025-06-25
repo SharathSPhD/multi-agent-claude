@@ -150,7 +150,7 @@ FINAL_PRO*.md
 FRONTEND*.md
 *_REPORT.md
 
-
+backend/claude_executions/
 claude_sdk_test/
 scripts/
 CLAUDE.md

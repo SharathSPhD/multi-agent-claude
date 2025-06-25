@@ -8,10 +8,10 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from typing import Generator
 
-# Database URL from environment or default to SQLite
+# Database URL from environment or default to SQLite in project root
 DATABASE_URL = os.getenv(
     "DATABASE_URL", 
-    "sqlite:///./mcp_multiagent.db"
+    "sqlite:///../mcp_multiagent.db"
 )
 
 # For PostgreSQL in production:
