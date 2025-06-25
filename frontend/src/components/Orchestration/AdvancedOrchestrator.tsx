@@ -103,22 +103,25 @@ export default function AdvancedOrchestrator() {
       console.log('AdvancedOrchestrator: Data fetched successfully', { 
         agents: agentsData.length, 
         tasks: tasksData.length, 
-        patterns: patternsData.length 
+        patterns: Array.isArray(patternsData) ? patternsData.length : 'not array', 
+        patternsData 
       });
       setAgents(agentsData);
       setTasks(tasksData);
-      setWorkflowPatterns(patternsData);
+      setWorkflowPatterns(Array.isArray(patternsData) ? patternsData : []);
     } catch (error) {
       console.error('AdvancedOrchestrator: Failed to fetch data:', error);
+      setWorkflowPatterns([]); // Ensure we always have an array
     }
   };
 
   const fetchActiveExecutions = async () => {
     try {
       const executions = await advancedOrchestrationService.getActiveExecutions();
-      setActiveExecutions(executions);
+      setActiveExecutions(Array.isArray(executions) ? executions : []);
     } catch (error) {
       console.error('Failed to fetch executions:', error);
+      setActiveExecutions([]);
     }
   };
 
@@ -343,25 +346,25 @@ export default function AdvancedOrchestrator() {
                     <Text fontSize="xs" fontWeight="bold" mb={1}>Configuration:</Text>
                     <SimpleGrid columns={2} spacing={2}>
                       <Text fontSize="xs">
-                        <strong>Agents:</strong> {pattern.agents?.length || 0}
+                        <strong>Agents:</strong> {pattern.agent_ids?.length || 0}
                       </Text>
                       <Text fontSize="xs">
-                        <strong>Tasks:</strong> {pattern.tasks?.length || 0}
+                        <strong>Tasks:</strong> {pattern.task_ids?.length || 0}
                       </Text>
                       <Text fontSize="xs">
-                        <strong>Iterations:</strong> {pattern.max_iterations}
+                        <strong>Status:</strong> {pattern.status}
                       </Text>
                       <Text fontSize="xs">
-                        <strong>Parallel Groups:</strong> {pattern.parallel_groups?.length || 0}
+                        <strong>Created:</strong> {new Date(pattern.created_at).toLocaleDateString()}
                       </Text>
                     </SimpleGrid>
                   </Box>
 
-                  {Object.keys(pattern.dependencies || {}).length > 0 && (
+                  {pattern.user_objective && (
                     <Box>
-                      <Text fontSize="xs" fontWeight="bold" mb={1}>Dependencies:</Text>
+                      <Text fontSize="xs" fontWeight="bold" mb={1}>Objective:</Text>
                       <Text fontSize="xs" color="gray.600">
-                        {Object.keys(pattern.dependencies || {}).length} task dependencies defined
+                        {pattern.user_objective}
                       </Text>
                     </Box>
                   )}
@@ -699,7 +702,7 @@ export default function AdvancedOrchestrator() {
               <VStack spacing={4}>
                 <Text>Select an execution to monitor:</Text>
                 <SimpleGrid columns={2} spacing={4} width="100%">
-                  {activeExecutions.map(execution => (
+                  {(activeExecutions || []).map(execution => (
                     <Card 
                       key={execution.id} 
                       cursor="pointer" 

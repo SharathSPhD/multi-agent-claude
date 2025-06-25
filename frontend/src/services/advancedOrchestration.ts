@@ -24,11 +24,22 @@ export interface WorkflowPattern {
   name: string;
   description: string;
   workflow_type: string;
-  agents: string[];
-  tasks: string[];
-  dependencies: Record<string, string[]>;
-  parallel_groups: string[][];
-  max_iterations: number;
+  agent_ids: string[];
+  task_ids: string[];
+  user_objective: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  metadata: {
+    agent_count: number;
+    task_count: number;
+    existing_agents: number;
+    existing_tasks: number;
+    integrity_check: {
+      agents_valid: boolean;
+      tasks_valid: boolean;
+    };
+  };
 }
 
 export interface WorkflowExecution {
@@ -101,7 +112,17 @@ class AdvancedOrchestrationService {
   async getWorkflowPatterns(): Promise<WorkflowPattern[]> {
     const response = await fetch(`${API_BASE}/api/workflows/patterns`);
     if (!response.ok) throw new Error('Failed to fetch workflow patterns');
-    return response.json();
+    const data = await response.json();
+    
+    // Handle both old format (direct array) and new format (wrapped in data.patterns)
+    if (Array.isArray(data)) {
+      return data; // Old format
+    } else if (data.success && data.data && Array.isArray(data.data.patterns)) {
+      return data.data.patterns; // New enhanced format
+    } else {
+      console.warn('Unexpected workflow patterns response format:', data);
+      return []; // Fallback to empty array
+    }
   }
 
   async executeWorkflow(patternId: string, context: Record<string, any> = {}): Promise<WorkflowExecution> {
