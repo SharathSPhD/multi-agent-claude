@@ -157,7 +157,21 @@ class AdvancedOrchestrationService {
   async getWorkflowTypes(): Promise<WorkflowTypes> {
     const response = await fetch(`${API_BASE}/api/workflows/types`);
     if (!response.ok) throw new Error('Failed to get workflow types');
-    return response.json();
+    const data = await response.json();
+    
+    // Handle enhanced response format
+    if (data.success && data.data && data.data.workflow_types) {
+      return data.data.workflow_types;
+    }
+    return data;
+  }
+
+  async deleteWorkflowPattern(patternId: string): Promise<void> {
+    const response = await fetch(`${API_BASE}/api/workflows/patterns/${patternId}`, {
+      method: 'DELETE',
+    });
+    
+    if (!response.ok) throw new Error('Failed to delete workflow pattern');
   }
 }
 

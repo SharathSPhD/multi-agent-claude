@@ -41,7 +41,7 @@ import {
   Tag,
   TagLabel,
 } from '@chakra-ui/react';
-import { FiPlay, FiEye, FiSettings, FiZap, FiUsers, FiMessageSquare, FiTrendingUp, FiCpu } from 'react-icons/fi';
+import { FiPlay, FiEye, FiSettings, FiZap, FiUsers, FiMessageSquare, FiTrendingUp, FiCpu, FiEdit, FiTrash2 } from 'react-icons/fi';
 import { apiService, Agent, Task } from '../../services/api';
 import { 
   advancedOrchestrationService, 
@@ -254,6 +254,43 @@ export default function AdvancedOrchestrator() {
     }
   };
 
+  const editWorkflowPattern = (patternId: string) => {
+    const pattern = workflowPatterns.find(p => p.id === patternId);
+    if (pattern) {
+      // Pre-fill form with existing pattern data
+      setCreateForm({
+        name: pattern.name,
+        description: pattern.description,
+        objective: pattern.user_objective,
+        selectedAgents: pattern.agent_ids || [],
+        selectedTasks: pattern.task_ids || [],
+        workflowType: pattern.workflow_type,
+      });
+      onAnalyzeOpen();
+    }
+  };
+
+  const deleteWorkflowPattern = async (patternId: string) => {
+    if (window.confirm('Are you sure you want to delete this workflow pattern? This action cannot be undone.')) {
+      try {
+        await advancedOrchestrationService.deleteWorkflowPattern(patternId);
+        toast({
+          title: 'Workflow pattern deleted',
+          status: 'success',
+          duration: 3000,
+        });
+        fetchData(); // Refresh the patterns list
+      } catch (error) {
+        toast({
+          title: 'Failed to delete workflow pattern',
+          description: error instanceof Error ? error.message : 'Unknown error',
+          status: 'error',
+          duration: 3000,
+        });
+      }
+    }
+  };
+
   const getAgentName = (agentId: string) => {
     return agents.find(a => a.id === agentId)?.name || 'Unknown Agent';
   };
@@ -369,14 +406,32 @@ export default function AdvancedOrchestrator() {
                     </Box>
                   )}
 
-                  <Button
-                    size="sm"
-                    colorScheme="green"
-                    leftIcon={<FiPlay />}
-                    onClick={() => executeWorkflow(pattern.id)}
-                  >
-                    Execute Workflow
-                  </Button>
+                  <HStack spacing={2}>
+                    <Button
+                      size="sm"
+                      colorScheme="green"
+                      leftIcon={<FiPlay />}
+                      onClick={() => executeWorkflow(pattern.id)}
+                    >
+                      Execute
+                    </Button>
+                    <Button
+                      size="sm"
+                      leftIcon={<FiEdit />}
+                      onClick={() => editWorkflowPattern(pattern.id)}
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      size="sm"
+                      colorScheme="red"
+                      variant="outline"
+                      leftIcon={<FiTrash2 />}
+                      onClick={() => deleteWorkflowPattern(pattern.id)}
+                    >
+                      Delete
+                    </Button>
+                  </HStack>
                 </VStack>
               </CardBody>
             </Card>
@@ -507,7 +562,7 @@ export default function AdvancedOrchestrator() {
                             </SimpleGrid>
 
                             <Text fontSize="sm" color="gray.600">
-                              {workflowTypes[analysis.recommended_workflow]}
+                              {workflowTypes[analysis.recommended_workflow]?.name || analysis.recommended_workflow}
                             </Text>
                           </VStack>
                         </CardBody>
@@ -547,7 +602,7 @@ export default function AdvancedOrchestrator() {
                               <Badge ml={2} colorScheme="blue">Confidence: High</Badge>
                             </Text>
                             <Text fontSize="xs" color="gray.600">
-                              {workflowTypes[analysis.recommended_workflow.toUpperCase()]}
+                              {workflowTypes[analysis.recommended_workflow.toUpperCase()]?.description || 'Recommended workflow type'}
                             </Text>
                             <Text fontSize="xs" color="gray.500">
                               Leave empty to use AI recommendation, or select below to override
@@ -560,9 +615,9 @@ export default function AdvancedOrchestrator() {
                         onChange={(e) => setCreateForm(prev => ({ ...prev, workflowType: e.target.value }))}
                         placeholder={analysis ? `Use AI recommendation (${analysis.recommended_workflow.toUpperCase()})` : "Select workflow type"}
                       >
-                        {Object.entries(workflowTypes).map(([type, description]) => (
+                        {Object.entries(workflowTypes).map(([type, typeInfo]) => (
                           <option key={type} value={type}>
-                            {type} - {description}
+                            {type} - {typeInfo?.name || type}
                           </option>
                         ))}
                       </Select>
