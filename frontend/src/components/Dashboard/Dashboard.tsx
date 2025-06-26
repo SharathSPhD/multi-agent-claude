@@ -29,7 +29,7 @@ import {
   Flex,
   Divider,
 } from '@chakra-ui/react';
-import { FiPlay, FiPause, FiClock, FiActivity, FiAlertCircle, FiTrash2, FiSkipForward, FiX, FiFolder } from 'react-icons/fi';
+import { FiPlay, FiPause, FiClock, FiActivity, FiAlertCircle, FiTrash2, FiSkipForward, FiX } from 'react-icons/fi';
 import { apiService, Agent, Task } from '../../services/api';
 
 // Dynamic API base to work with both localhost and WSL IP
@@ -82,20 +82,9 @@ export default function Dashboard() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [activeExecutions, setActiveExecutions] = useState<any[]>([]);
-  const [projectDirectory, setProjectDirectory] = useState('/mnt/e/Development/mcp_a2a/project_selfdevelop');
-  const [directoryValid, setDirectoryValid] = useState(false);
   const [loading, setLoading] = useState(true);
   const toast = useToast();
 
-  const checkDirectoryValidity = async (directory: string) => {
-    try {
-      const response = await fetch(`${getApiBase()}/api/project/directory-info?directory=${encodeURIComponent(directory)}`);
-      const data = await response.json();
-      setDirectoryValid(data.exists && data.total_files > 0);
-    } catch (error) {
-      setDirectoryValid(false);
-    }
-  };
 
   const cancelExecution = async (executionId: string) => {
     try {
@@ -330,7 +319,6 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchData();
-    checkDirectoryValidity(projectDirectory);
     // Refresh every 5 seconds
     const interval = setInterval(fetchData, 5000);
     return () => clearInterval(interval);
@@ -462,57 +450,6 @@ export default function Dashboard() {
           </CardBody>
         </Card>
 
-        <Card>
-          <CardBody>
-            <Heading size="md" mb={4}>
-              <HStack>
-                <FiFolder />
-                <Text>Project Directory</Text>
-              </HStack>
-            </Heading>
-            <VStack spacing={3} align="stretch">
-              <Text fontSize="sm" color="gray.600">
-                Current project directory for agent/task files
-              </Text>
-              <HStack>
-                <Text 
-                  fontFamily="mono" 
-                  fontSize="sm" 
-                  bg={directoryValid ? "green.50" : "gray.100"} 
-                  p={2} 
-                  borderRadius="md" 
-                  flex={1}
-                  border={directoryValid ? "1px solid" : "none"}
-                  borderColor={directoryValid ? "green.200" : "transparent"}
-                >
-                  {projectDirectory}
-                </Text>
-                <Button 
-                  size="sm" 
-                  colorScheme="blue" 
-                  leftIcon={<FiFolder />}
-                  onClick={() => {
-                    const newDir = prompt('Enter project directory path:', projectDirectory);
-                    if (newDir && newDir !== projectDirectory) {
-                      setProjectDirectory(newDir);
-                      checkDirectoryValidity(newDir);
-                    }
-                  }}
-                >
-                  Browse
-                </Button>
-              </HStack>
-              <HStack justify="space-between">
-                <Text fontSize="xs" color="gray.500">
-                  Load agents and tasks from their respective pages
-                </Text>
-                {directoryValid && (
-                  <Badge colorScheme="green" size="sm">Valid Directory</Badge>
-                )}
-              </HStack>
-            </VStack>
-          </CardBody>
-        </Card>
       </SimpleGrid>
 
       {/* Active Executions Monitoring */}

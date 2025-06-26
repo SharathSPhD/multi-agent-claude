@@ -41,7 +41,7 @@ import {
   Tag,
   TagLabel,
 } from '@chakra-ui/react';
-import { FiPlay, FiEye, FiSettings, FiZap, FiUsers, FiMessageSquare, FiTrendingUp, FiCpu, FiEdit, FiTrash2 } from 'react-icons/fi';
+import { FiPlay, FiEye, FiSettings, FiZap, FiUsers, FiMessageSquare, FiTrendingUp, FiCpu, FiEdit, FiTrash2, FiFolder } from 'react-icons/fi';
 import { apiService, Agent, Task } from '../../services/api';
 import { 
   advancedOrchestrationService, 
@@ -69,7 +69,10 @@ export default function AdvancedOrchestrator() {
     selectedAgents: [] as string[],
     selectedTasks: [] as string[],
     workflowType: '',
+    projectDirectory: '/mnt/e/Development/mcp_a2a/project_selfdevelop',
   });
+
+  const [directoryValid, setDirectoryValid] = useState(false);
 
   const { isOpen: isCreateOpen, onOpen: onCreateOpen, onClose: onCreateClose } = useDisclosure();
   const { isOpen: isMonitorOpen, onOpen: onMonitorOpen, onClose: onMonitorClose } = useDisclosure();
@@ -80,6 +83,7 @@ export default function AdvancedOrchestrator() {
   useEffect(() => {
     fetchData();
     fetchWorkflowTypes();
+    checkDirectoryValidity(createForm.projectDirectory);
     
     // Refresh executions every 3 seconds
     const interval = setInterval(() => {
@@ -218,6 +222,7 @@ export default function AdvancedOrchestrator() {
         selectedAgents: [],
         selectedTasks: [],
         workflowType: '',
+        projectDirectory: '/mnt/e/Development/mcp_a2a/project_selfdevelop',
       });
       setAnalysis(null);
       onCreateClose();
@@ -265,6 +270,7 @@ export default function AdvancedOrchestrator() {
         selectedAgents: pattern.agent_ids || [],
         selectedTasks: pattern.task_ids || [],
         workflowType: pattern.workflow_type,
+        projectDirectory: '/mnt/e/Development/mcp_a2a/project_selfdevelop',
       });
       onAnalyzeOpen();
     }
@@ -288,6 +294,25 @@ export default function AdvancedOrchestrator() {
           duration: 3000,
         });
       }
+    }
+  };
+
+  // API base for project directory validation
+  const getApiBase = () => {
+    if (typeof window !== 'undefined') {
+      const { protocol, hostname } = window.location;
+      return `${protocol}//${hostname}:8000`;
+    }
+    return 'http://localhost:8000';
+  };
+
+  const checkDirectoryValidity = async (directory: string) => {
+    try {
+      const response = await fetch(`${getApiBase()}/api/project/directory-info?directory=${encodeURIComponent(directory)}`);
+      const data = await response.json();
+      setDirectoryValid(data.exists && data.total_files > 0);
+    } catch (error) {
+      setDirectoryValid(false);
     }
   };
 
@@ -623,11 +648,69 @@ export default function AdvancedOrchestrator() {
                       </Select>
                     </FormControl>
 
+                    <FormControl isRequired>
+                      <FormLabel>Project Directory</FormLabel>
+                      <Text fontSize="sm" color="gray.600" mb={3}>
+                        Directory where agents will operate and produce outputs
+                      </Text>
+                      <VStack spacing={2} align="stretch">
+                        <HStack>
+                          <Input
+                            value={createForm.projectDirectory}
+                            onChange={(e) => {
+                              const newDir = e.target.value;
+                              setCreateForm(prev => ({ ...prev, projectDirectory: newDir }));
+                              if (newDir) checkDirectoryValidity(newDir);
+                            }}
+                            placeholder="Enter project directory path..."
+                            fontFamily="mono"
+                            fontSize="sm"
+                          />
+                          <Button 
+                            size="md" 
+                            colorScheme="blue" 
+                            leftIcon={<FiFolder />}
+                            onClick={() => {
+                              const newDir = prompt('Enter project directory path:', createForm.projectDirectory);
+                              if (newDir && newDir !== createForm.projectDirectory) {
+                                setCreateForm(prev => ({ ...prev, projectDirectory: newDir }));
+                                checkDirectoryValidity(newDir);
+                              }
+                            }}
+                          >
+                            Browse
+                          </Button>
+                        </HStack>
+                        <HStack justify="space-between">
+                          <Text fontSize="xs" color="gray.500">
+                            Agents and tasks will operate in this directory
+                          </Text>
+                          {directoryValid ? (
+                            <Badge colorScheme="green" size="sm">Valid Directory</Badge>
+                          ) : (
+                            <Badge colorScheme="red" size="sm">Directory Not Found</Badge>
+                          )}
+                        </HStack>
+                      </VStack>
+                    </FormControl>
+
                     <HStack spacing={3} pt={4}>
                       <Button colorScheme="purple" onClick={createWorkflowPattern}>
                         Create Workflow Pattern
                       </Button>
-                      <Button onClick={onAnalyzeClose}>Cancel</Button>
+                      <Button onClick={() => {
+                        setCreateForm({
+                          name: '',
+                          description: '',
+                          objective: '',
+                          selectedAgents: [],
+                          selectedTasks: [],
+                          workflowType: '',
+                          projectDirectory: '/mnt/e/Development/mcp_a2a/project_selfdevelop',
+                        });
+                        setAnalysis(null);
+                        onAnalyzeClose();
+                      }}>Cancel</Button>
                     </HStack>
                   </VStack>
                 </TabPanel>
