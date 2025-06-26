@@ -84,6 +84,19 @@ export interface AgentUpdate {
   status?: AgentStatus;
 }
 
+export interface TaskUpdate {
+  title?: string;
+  description?: string;
+  expected_output?: string;
+  assigned_agent_ids?: string[];
+  resources?: string[];
+  dependencies?: string[];
+  priority?: TaskPriority;
+  deadline?: string;
+  estimated_duration?: number;
+  status?: TaskStatus;
+}
+
 export interface Execution {
   id: string;
   task_id: string;

@@ -25,13 +25,15 @@ import {
   IconButton,
   Flex,
 } from '@chakra-ui/react';
-import { FiPlus, FiTrash2, FiUser, FiUpload } from 'react-icons/fi';
+import { FiPlus, FiTrash2, FiUser, FiUpload, FiEdit } from 'react-icons/fi';
 import { apiService, Agent, CreateAgentData } from '../../services/api';
 
 export default function AgentManager() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingFiles, setLoadingFiles] = useState(false);
+  const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
+  const [isFileMode, setIsFileMode] = useState(false);
   const [formData, setFormData] = useState<CreateAgentData>({
     name: '',
     role: '',
@@ -137,28 +139,30 @@ export default function AgentManager() {
     }
 
     try {
-      await apiService.createAgent(formData);
-      toast({
-        title: 'Agent created successfully',
-        status: 'success',
-        duration: 3000,
-      });
+      if (editingAgent) {
+        // Update existing agent
+        await apiService.updateAgent(editingAgent.id, formData);
+        toast({
+          title: 'Agent updated successfully',
+          status: 'success',
+          duration: 3000,
+        });
+      } else {
+        // Create new agent
+        await apiService.createAgent(formData);
+        toast({
+          title: 'Agent created successfully',
+          status: 'success',
+          duration: 3000,
+        });
+      }
       
-      setFormData({
-        name: '',
-        role: '',
-        description: '',
-        system_prompt: '',
-        capabilities: [],
-        tools: [],
-        objectives: [],
-        constraints: [],
-      });
+      resetForm();
       onClose();
       fetchAgents();
     } catch (error) {
       toast({
-        title: 'Error creating agent',
+        title: editingAgent ? 'Error updating agent' : 'Error creating agent',
         description: error instanceof Error ? error.message : 'Unknown error',
         status: 'error',
         duration: 3000,
@@ -192,6 +196,76 @@ export default function AgentManager() {
     setFormData(prev => ({ ...prev, [field]: items }));
   };
 
+  const resetForm = () => {
+    setFormData({
+      name: '',
+      role: '',
+      description: '',
+      system_prompt: '',
+      capabilities: [],
+      tools: [],
+      objectives: [],
+      constraints: [],
+    });
+    setEditingAgent(null);
+    setIsFileMode(false);
+  };
+
+  const handleEdit = (agent: Agent) => {
+    setEditingAgent(agent);
+    setFormData({
+      name: agent.name,
+      role: agent.role,
+      description: agent.description,
+      system_prompt: agent.system_prompt,
+      capabilities: agent.capabilities || [],
+      tools: agent.tools || [],
+      objectives: agent.objectives || [],
+      constraints: agent.constraints || [],
+    });
+    setIsFileMode(false);
+    onOpen();
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const agentData = JSON.parse(text);
+      
+      // Validate JSON structure
+      if (!agentData.name || !agentData.role || !agentData.description || !agentData.system_prompt) {
+        throw new Error('Invalid agent JSON: missing required fields (name, role, description, system_prompt)');
+      }
+
+      setFormData({
+        name: agentData.name,
+        role: agentData.role,
+        description: agentData.description,
+        system_prompt: agentData.system_prompt,
+        capabilities: agentData.capabilities || [],
+        tools: agentData.tools || [],
+        objectives: agentData.objectives || [],
+        constraints: agentData.constraints || [],
+      });
+      
+      toast({
+        title: 'Agent loaded from file',
+        status: 'success',
+        duration: 3000,
+      });
+    } catch (error) {
+      toast({
+        title: 'Error loading agent file',
+        description: error instanceof Error ? error.message : 'Invalid JSON file',
+        status: 'error',
+        duration: 3000,
+      });
+    }
+  };
+
   if (loading) {
     return <Text>Loading agents...</Text>;
   }
@@ -201,16 +275,10 @@ export default function AgentManager() {
       <Flex justify="space-between" align="center" mb={6}>
         <Heading>Agent Management</Heading>
         <HStack spacing={3}>
-          <Button 
-            leftIcon={<FiUpload />} 
-            colorScheme="green" 
-            variant="outline"
-            onClick={loadAgentsFromFiles}
-            isLoading={loadingFiles}
-          >
-            Load from Files
-          </Button>
-          <Button leftIcon={<FiPlus />} colorScheme="blue" onClick={onOpen}>
+          <Button leftIcon={<FiPlus />} colorScheme="blue" onClick={() => {
+            resetForm();
+            onOpen();
+          }}>
             Create Agent
           </Button>
         </HStack>
@@ -235,14 +303,24 @@ export default function AgentManager() {
                     <Badge colorScheme={agent.status === 'executing' ? 'green' : 'gray'}>
                       {agent.status}
                     </Badge>
-                    <IconButton
-                      aria-label="Delete agent"
-                      icon={<FiTrash2 />}
-                      size="sm"
-                      variant="ghost"
-                      colorScheme="red"
-                      onClick={() => handleDelete(agent.id)}
-                    />
+                    <HStack spacing={1}>
+                      <IconButton
+                        aria-label="Edit agent"
+                        icon={<FiEdit />}
+                        size="sm"
+                        variant="ghost"
+                        colorScheme="blue"
+                        onClick={() => handleEdit(agent)}
+                      />
+                      <IconButton
+                        aria-label="Delete agent"
+                        icon={<FiTrash2 />}
+                        size="sm"
+                        variant="ghost"
+                        colorScheme="red"
+                        onClick={() => handleDelete(agent.id)}
+                      />
+                    </HStack>
                   </HStack>
                   
                   <Box>
@@ -276,12 +354,49 @@ export default function AgentManager() {
         </SimpleGrid>
       )}
 
-      <Modal isOpen={isOpen} onClose={onClose} size="xl">
+      <Modal isOpen={isOpen} onClose={() => {
+        resetForm();
+        onClose();
+      }} size="xl">
         <ModalOverlay />
         <ModalContent>
-          <ModalHeader>Create New Agent</ModalHeader>
+          <ModalHeader>{editingAgent ? 'Edit Agent' : 'Create New Agent'}</ModalHeader>
           <ModalCloseButton />
           <ModalBody pb={6}>
+            <VStack spacing={4} mb={4}>
+              <HStack justify="space-between" width="100%">
+                <Text fontSize="sm" color="gray.600">
+                  {isFileMode ? 'Load agent configuration from JSON file or fill form manually' : 'Fill the form manually or load from a JSON file'}
+                </Text>
+                <HStack>
+                  <Button
+                    size="sm"
+                    variant={isFileMode ? 'solid' : 'outline'}
+                    colorScheme="green"
+                    leftIcon={<FiUpload />}
+                    onClick={() => setIsFileMode(!isFileMode)}
+                  >
+                    {isFileMode ? 'Manual Input' : 'Load from File'}
+                  </Button>
+                </HStack>
+              </HStack>
+              
+              {isFileMode && (
+                <FormControl>
+                  <FormLabel>Upload Agent JSON File</FormLabel>
+                  <Input
+                    type="file"
+                    accept=".json"
+                    onChange={handleFileUpload}
+                    size="sm"
+                  />
+                  <Text fontSize="xs" color="gray.500" mt={1}>
+                    Select a JSON file containing agent configuration
+                  </Text>
+                </FormControl>
+              )}
+            </VStack>
+            
             <form onSubmit={handleSubmit}>
               <VStack spacing={4}>
                 <FormControl isRequired>
@@ -354,8 +469,13 @@ export default function AgentManager() {
                 </FormControl>
 
                 <HStack spacing={3} pt={4}>
-                  <Button type="submit" colorScheme="blue">Create Agent</Button>
-                  <Button onClick={onClose}>Cancel</Button>
+                  <Button type="submit" colorScheme="blue">
+                    {editingAgent ? 'Update Agent' : 'Create Agent'}
+                  </Button>
+                  <Button onClick={() => {
+                    resetForm();
+                    onClose();
+                  }}>Cancel</Button>
                 </HStack>
               </VStack>
             </form>

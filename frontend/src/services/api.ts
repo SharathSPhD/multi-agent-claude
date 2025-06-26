@@ -1,8 +1,8 @@
 // API service for backend communication
-import { Agent, Task, CreateAgentData, CreateTaskData, AgentUpdate, AgentStatus } from '../types/api';
+import { Agent, Task, CreateAgentData, CreateTaskData, AgentUpdate, TaskUpdate, AgentStatus } from '../types/api';
 
 // Re-export types for backwards compatibility
-export type { Agent, Task, CreateAgentData, CreateTaskData, AgentUpdate, AgentStatus } from '../types/api';
+export type { Agent, Task, CreateAgentData, CreateTaskData, AgentUpdate, TaskUpdate, AgentStatus } from '../types/api';
 
 // Dynamic API base to work with both localhost and WSL IP
 const API_BASE = (() => {
@@ -73,6 +73,16 @@ class ApiService {
       body: JSON.stringify(data),
     });
     if (!response.ok) throw new Error('Failed to create task');
+    return response.json();
+  }
+
+  async updateTask(id: string, data: TaskUpdate): Promise<Task> {
+    const response = await fetch(`${API_BASE}/api/tasks/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('Failed to update task');
     return response.json();
   }
 

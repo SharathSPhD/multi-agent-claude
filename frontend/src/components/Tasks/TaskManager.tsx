@@ -26,14 +26,16 @@ import {
   IconButton,
   Flex,
 } from '@chakra-ui/react';
-import { FiPlus, FiPlay, FiCheckSquare, FiTrash2, FiUpload } from 'react-icons/fi';
-import { apiService, Agent, Task, CreateTaskData } from '../../services/api';
+import { FiPlus, FiEdit, FiCheckSquare, FiTrash2, FiUpload } from 'react-icons/fi';
+import { apiService, Agent, Task, CreateTaskData, TaskUpdate } from '../../services/api';
 
 export default function TaskManager() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingFiles, setLoadingFiles] = useState(false);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [isFileMode, setIsFileMode] = useState(false);
   const [formData, setFormData] = useState<CreateTaskData>({
     title: '',
     description: '',
@@ -131,7 +133,7 @@ export default function TaskManager() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!formData.title || !formData.description || !formData.agent_id) {
+    if (!formData.title || !formData.description || (!formData.assigned_agent_ids || formData.assigned_agent_ids.length === 0)) {
       toast({
         title: 'Please fill in all required fields',
         status: 'warning',
@@ -141,23 +143,30 @@ export default function TaskManager() {
     }
 
     try {
-      await apiService.createTask(formData);
-      toast({
-        title: 'Task created successfully',
-        status: 'success',
-        duration: 3000,
-      });
+      if (editingTask) {
+        // Update existing task
+        await apiService.updateTask(editingTask.id, formData as TaskUpdate);
+        toast({
+          title: 'Task updated successfully',
+          status: 'success',
+          duration: 3000,
+        });
+      } else {
+        // Create new task
+        await apiService.createTask(formData);
+        toast({
+          title: 'Task created successfully',
+          status: 'success',
+          duration: 3000,
+        });
+      }
       
-      setFormData({
-        title: '',
-        description: '',
-        assigned_agent_ids: [],
-      });
+      resetForm();
       onClose();
       fetchData();
     } catch (error) {
       toast({
-        title: 'Error creating task',
+        title: editingTask ? 'Error updating task' : 'Error creating task',
         description: error instanceof Error ? error.message : 'Unknown error',
         status: 'error',
         duration: 3000,
@@ -237,6 +246,73 @@ export default function TaskManager() {
     return agent ? agent.name : 'Unknown Agent';
   };
 
+  const resetForm = () => {
+    setFormData({
+      title: '',
+      description: '',
+      assigned_agent_ids: [],
+    });
+    setEditingTask(null);
+    setIsFileMode(false);
+  };
+
+  const handleEdit = (task: Task) => {
+    setEditingTask(task);
+    setFormData({
+      title: task.title,
+      description: task.description,
+      assigned_agent_ids: task.assigned_agent_ids || [],
+      expected_output: task.expected_output,
+      resources: task.resources,
+      dependencies: task.dependencies,
+      priority: task.priority,
+      deadline: task.deadline,
+      estimated_duration: task.estimated_duration,
+    });
+    setIsFileMode(false);
+    onOpen();
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const taskData = JSON.parse(text);
+      
+      // Validate JSON structure
+      if (!taskData.title || !taskData.description) {
+        throw new Error('Invalid task JSON: missing required fields (title, description)');
+      }
+
+      setFormData({
+        title: taskData.title,
+        description: taskData.description,
+        assigned_agent_ids: taskData.assigned_agent_ids || [],
+        expected_output: taskData.expected_output,
+        resources: taskData.resources || [],
+        dependencies: taskData.dependencies || [],
+        priority: taskData.priority || 'medium',
+        deadline: taskData.deadline,
+        estimated_duration: taskData.estimated_duration,
+      });
+      
+      toast({
+        title: 'Task loaded from file',
+        status: 'success',
+        duration: 3000,
+      });
+    } catch (error) {
+      toast({
+        title: 'Error loading task file',
+        description: error instanceof Error ? error.message : 'Invalid JSON file',
+        status: 'error',
+        duration: 3000,
+      });
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'completed': return 'green';
@@ -256,28 +332,12 @@ export default function TaskManager() {
         <Heading>Task Management</Heading>
         <HStack spacing={3}>
           <Button 
-            leftIcon={<FiUpload />} 
-            colorScheme="green" 
-            variant="outline"
-            onClick={loadTasksFromFiles}
-            isLoading={loadingFiles}
-          >
-            Load from Files
-          </Button>
-          {tasks.length > 0 && (
-            <Button 
-              leftIcon={<FiTrash2 />} 
-              colorScheme="red" 
-              variant="outline"
-              onClick={() => deleteAllTasks()}
-            >
-              Delete All Tasks
-            </Button>
-          )}
-          <Button 
             leftIcon={<FiPlus />} 
             colorScheme="blue" 
-            onClick={onOpen}
+            onClick={() => {
+              resetForm();
+              onOpen();
+            }}
             isDisabled={agents.length === 0}
           >
             Create Task
@@ -320,16 +380,14 @@ export default function TaskManager() {
                       {task.status}
                     </Badge>
                     <HStack spacing={1}>
-                      {task.status === 'pending' && (
-                        <IconButton
-                          aria-label="Execute task"
-                          icon={<FiPlay />}
-                          size="sm"
-                          colorScheme="green"
-                          variant="ghost"
-                          onClick={() => handleExecute(task.id)}
-                        />
-                      )}
+                      <IconButton
+                        aria-label="Edit task"
+                        icon={<FiEdit />}
+                        size="sm"
+                        variant="ghost"
+                        colorScheme="blue"
+                        onClick={() => handleEdit(task)}
+                      />
                       <IconButton
                         aria-label="Delete task"
                         icon={<FiTrash2 />}
@@ -373,12 +431,49 @@ export default function TaskManager() {
         </SimpleGrid>
       )}
 
-      <Modal isOpen={isOpen} onClose={onClose} size="lg">
+      <Modal isOpen={isOpen} onClose={() => {
+        resetForm();
+        onClose();
+      }} size="lg">
         <ModalOverlay />
         <ModalContent>
-          <ModalHeader>Create New Task</ModalHeader>
+          <ModalHeader>{editingTask ? 'Edit Task' : 'Create New Task'}</ModalHeader>
           <ModalCloseButton />
           <ModalBody pb={6}>
+            <VStack spacing={4} mb={4}>
+              <HStack justify="space-between" width="100%">
+                <Text fontSize="sm" color="gray.600">
+                  {isFileMode ? 'Load task configuration from JSON file or fill form manually' : 'Fill the form manually or load from a JSON file'}
+                </Text>
+                <HStack>
+                  <Button
+                    size="sm"
+                    variant={isFileMode ? 'solid' : 'outline'}
+                    colorScheme="green"
+                    leftIcon={<FiUpload />}
+                    onClick={() => setIsFileMode(!isFileMode)}
+                  >
+                    {isFileMode ? 'Manual Input' : 'Load from File'}
+                  </Button>
+                </HStack>
+              </HStack>
+              
+              {isFileMode && (
+                <FormControl>
+                  <FormLabel>Upload Task JSON File</FormLabel>
+                  <Input
+                    type="file"
+                    accept=".json"
+                    onChange={handleFileUpload}
+                    size="sm"
+                  />
+                  <Text fontSize="xs" color="gray.500" mt={1}>
+                    Select a JSON file containing task configuration
+                  </Text>
+                </FormControl>
+              )}
+            </VStack>
+            
             <form onSubmit={handleSubmit}>
               <VStack spacing={4}>
                 <FormControl isRequired>
@@ -416,8 +511,13 @@ export default function TaskManager() {
                 </FormControl>
 
                 <HStack spacing={3} pt={4}>
-                  <Button type="submit" colorScheme="blue">Create Task</Button>
-                  <Button onClick={onClose}>Cancel</Button>
+                  <Button type="submit" colorScheme="blue">
+                    {editingTask ? 'Update Task' : 'Create Task'}
+                  </Button>
+                  <Button onClick={() => {
+                    resetForm();
+                    onClose();
+                  }}>Cancel</Button>
                 </HStack>
               </VStack>
             </form>
