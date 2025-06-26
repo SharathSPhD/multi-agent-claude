@@ -1,0 +1,15 @@
+{
+  "title": "Topology Concept Selection and Mathematical Analysis",
+  "description": "Research and select a fascinating topology concept suitable for visualization, provide comprehensive mathematical analysis, and define the theoretical foundations for the visualization project.",
+  "expected_output": "A detailed mathematical analysis document containing: (1) Selected topology concept with justification, (2) Mathematical definitions and key theorems, (3) Visualization parameters and constraints, (4) Educational significance and applications, (5) Specific examples and edge cases to explore",
+  "assigned_agent_ids": [],
+  "resources": [
+    "topology_textbooks",
+    "mathematical_databases",
+    "research_papers",
+    "visualization_examples"
+  ],
+  "dependencies": [],
+  "priority": "high",
+  "estimated_duration": 120
+}

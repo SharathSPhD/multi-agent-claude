@@ -1,0 +1,19 @@
+{
+  "title": "Educational Documentation and Learning Materials Creation",
+  "description": "Create comprehensive educational documentation and learning materials that explain the topology concept, guide users through the visualization, and provide educational context for different knowledge levels.",
+  "expected_output": "Complete educational package including: (1) Comprehensive mathematical explanation with progressive complexity, (2) User guide for the visualization with step-by-step tutorials, (3) Interactive learning materials and exploration guides, (4) Historical context and real-world applications, (5) FAQ and troubleshooting guide, (6) Additional resources and further reading recommendations",
+  "assigned_agent_ids": [],
+  "resources": [
+    "educational_content_frameworks",
+    "mathematical_communication_guides",
+    "documentation_platforms",
+    "multimedia_integration_tools"
+  ],
+  "dependencies": [
+    "concept_selection_and_analysis",
+    "visualization_design_and_architecture",
+    "python_implementation_development"
+  ],
+  "priority": "medium",
+  "estimated_duration": 100
+}

@@ -28,13 +28,12 @@ export interface Task {
   description: string;
   expected_output?: string;
   assigned_agent_ids?: string[];
-  agent_id?: string; // For backwards compatibility
   assigned_agents?: Agent[];
   resources: string[];
   dependencies: string[];
   priority: TaskPriority;
   deadline?: string;
-  estimated_duration?: number;
+  estimated_duration?: string;
   status: TaskStatus;
   results?: Record<string, any>;
   error_message?: string;
@@ -62,12 +61,11 @@ export interface CreateTaskData {
   description: string;
   expected_output?: string;
   assigned_agent_ids?: string[];
-  agent_id?: string; // For backwards compatibility
   resources?: string[];
   dependencies?: string[];
   priority?: TaskPriority;
   deadline?: string;
-  estimated_duration?: number;
+  estimated_duration?: string;
 }
 
 export interface AgentUpdate {
@@ -93,7 +91,7 @@ export interface TaskUpdate {
   dependencies?: string[];
   priority?: TaskPriority;
   deadline?: string;
-  estimated_duration?: number;
+  estimated_duration?: string;
   status?: TaskStatus;
 }
 

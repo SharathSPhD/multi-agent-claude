@@ -40,6 +40,12 @@ export default function TaskManager() {
     title: '',
     description: '',
     assigned_agent_ids: [],
+    expected_output: '',
+    resources: [],
+    dependencies: [],
+    priority: 'medium',
+    deadline: '',
+    estimated_duration: '',
   });
   
   const { isOpen, onOpen, onClose } = useDisclosure();
@@ -135,7 +141,7 @@ export default function TaskManager() {
     
     if (!formData.title || !formData.description || (!formData.assigned_agent_ids || formData.assigned_agent_ids.length === 0)) {
       toast({
-        title: 'Please fill in all required fields',
+        title: 'Please fill in all required fields (title, description, and agent)',
         status: 'warning',
         duration: 3000,
       });
@@ -143,9 +149,21 @@ export default function TaskManager() {
     }
 
     try {
+      // Clean up the form data - remove empty strings and arrays
+      const cleanedData = {
+        ...formData,
+        expected_output: formData.expected_output || undefined,
+        estimated_duration: formData.estimated_duration || undefined,
+        deadline: formData.deadline || undefined,
+        resources: formData.resources?.length ? formData.resources : undefined,
+        dependencies: formData.dependencies?.length ? formData.dependencies : undefined,
+      };
+      
+      console.log('Submitting task data:', JSON.stringify(cleanedData, null, 2));
+      
       if (editingTask) {
         // Update existing task
-        await apiService.updateTask(editingTask.id, formData as TaskUpdate);
+        await apiService.updateTask(editingTask.id, cleanedData as TaskUpdate);
         toast({
           title: 'Task updated successfully',
           status: 'success',
@@ -153,7 +171,7 @@ export default function TaskManager() {
         });
       } else {
         // Create new task
-        await apiService.createTask(formData);
+        await apiService.createTask(cleanedData);
         toast({
           title: 'Task created successfully',
           status: 'success',
@@ -165,6 +183,7 @@ export default function TaskManager() {
       onClose();
       fetchData();
     } catch (error) {
+      console.error('Task submission error:', error);
       toast({
         title: editingTask ? 'Error updating task' : 'Error creating task',
         description: error instanceof Error ? error.message : 'Unknown error',
@@ -251,6 +270,12 @@ export default function TaskManager() {
       title: '',
       description: '',
       assigned_agent_ids: [],
+      expected_output: '',
+      resources: [],
+      dependencies: [],
+      priority: 'medium',
+      deadline: '',
+      estimated_duration: '',
     });
     setEditingTask(null);
     setIsFileMode(false);
@@ -262,12 +287,12 @@ export default function TaskManager() {
       title: task.title,
       description: task.description,
       assigned_agent_ids: task.assigned_agent_ids || [],
-      expected_output: task.expected_output,
-      resources: task.resources,
-      dependencies: task.dependencies,
-      priority: task.priority,
-      deadline: task.deadline,
-      estimated_duration: task.estimated_duration,
+      expected_output: task.expected_output || '',
+      resources: task.resources || [],
+      dependencies: task.dependencies || [],
+      priority: task.priority || 'medium',
+      deadline: task.deadline || '',
+      estimated_duration: task.estimated_duration || '',
     });
     setIsFileMode(false);
     onOpen();
@@ -290,12 +315,12 @@ export default function TaskManager() {
         title: taskData.title,
         description: taskData.description,
         assigned_agent_ids: taskData.assigned_agent_ids || [],
-        expected_output: taskData.expected_output,
+        expected_output: taskData.expected_output || '',
         resources: taskData.resources || [],
         dependencies: taskData.dependencies || [],
         priority: taskData.priority || 'medium',
-        deadline: taskData.deadline,
-        estimated_duration: taskData.estimated_duration,
+        deadline: taskData.deadline || '',
+        estimated_duration: taskData.estimated_duration || '',
       });
       
       toast({
@@ -508,6 +533,63 @@ export default function TaskManager() {
                       </option>
                     ))}
                   </Select>
+                </FormControl>
+
+                <FormControl>
+                  <FormLabel>Expected Output</FormLabel>
+                  <Textarea
+                    value={formData.expected_output || ''}
+                    onChange={(e) => setFormData(prev => ({ ...prev, expected_output: e.target.value }))}
+                    placeholder="Describe what output or deliverable is expected"
+                    rows={3}
+                  />
+                </FormControl>
+
+                <FormControl>
+                  <FormLabel>Priority</FormLabel>
+                  <Select
+                    value={formData.priority || 'medium'}
+                    onChange={(e) => setFormData(prev => ({ ...prev, priority: e.target.value as any }))}
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="urgent">Urgent</option>
+                  </Select>
+                </FormControl>
+
+                <FormControl>
+                  <FormLabel>Estimated Duration (minutes)</FormLabel>
+                  <Input
+                    value={formData.estimated_duration || ''}
+                    onChange={(e) => setFormData(prev => ({ ...prev, estimated_duration: e.target.value }))}
+                    placeholder="e.g., 60"
+                    type="text"
+                  />
+                </FormControl>
+
+                <FormControl>
+                  <FormLabel>Resources (comma-separated)</FormLabel>
+                  <Input
+                    value={formData.resources?.join(', ') || ''}
+                    onChange={(e) => {
+                      const resources = e.target.value.split(',').map(r => r.trim()).filter(r => r);
+                      setFormData(prev => ({ ...prev, resources }));
+                    }}
+                    placeholder="e.g., documentation, API access, datasets"
+                  />
+                </FormControl>
+
+                <FormControl>
+                  <FormLabel>Dependencies (comma-separated)</FormLabel>
+                  <Input
+                    value={formData.dependencies?.join(', ') || ''}
+                    onChange={(e) => {
+                      const dependencies = e.target.value.split(',').map(d => d.trim()).filter(d => d);
+                      setFormData(prev => ({ ...prev, dependencies }));
+                    }}
+                    placeholder="e.g., task1, setup_complete"
+                  />
                 </FormControl>
 
                 <HStack spacing={3} pt={4}>

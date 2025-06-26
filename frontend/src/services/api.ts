@@ -72,7 +72,11 @@ class ApiService {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-    if (!response.ok) throw new Error('Failed to create task');
+    if (!response.ok) {
+      const errorData = await response.text();
+      console.error('Create task error response:', errorData);
+      throw new Error(`Failed to create task: ${response.status} - ${errorData}`);
+    }
     return response.json();
   }
 

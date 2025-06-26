@@ -1,0 +1,73 @@
+WORKFLOW CONFIGURATION FOR STEP 3 - CONFIGURE & CREATE:
+
+WORKFLOW NAME: Topology Visualization Workflow
+
+DESCRIPTION: Comprehensive workflow for creating educational visualizations of unique mathematical topology concepts, involving mathematical analysis, visualization design, implementation, and documentation.
+
+WORKFLOW TYPE: ORCHESTRATOR
+(This type is recommended because it involves sequential coordination of specialized agents with clear dependencies and handoffs between mathematical analysis, design, implementation, and documentation phases)
+
+PROJECT DIRECTORY: /mnt/e/Development/mcp_a2a/examples/topology_visualization_workflow
+
+AGENT-TASK ASSIGNMENTS:
+
+1. TOPOLOGY MATHEMATICIAN → Concept Selection and Mathematical Analysis
+   - Research and select suitable topology concept
+   - Provide rigorous mathematical foundations
+   - Define visualization parameters
+
+2. VISUALIZATION ARCHITECT → Visualization Design and Technical Architecture  
+   - Design overall visualization strategy
+   - Select appropriate tools and frameworks
+   - Create technical specifications
+
+3. PYTHON DEVELOPER → Python Implementation and Code Development
+   - Implement the visualization system
+   - Create interactive components
+   - Optimize performance and documentation
+
+4. DOCUMENTATION SPECIALIST → Educational Documentation Creation
+   - Create comprehensive educational materials
+   - Develop user guides and tutorials
+   - Ensure accessibility across knowledge levels
+
+5. ALL AGENTS → Integration, Testing, and Optimization
+   - Collaborative integration and testing
+   - Performance optimization
+   - Final quality assurance
+
+WORKFLOW EXECUTION STRATEGY:
+
+Phase 1: Foundation (Mathematical Analysis)
+- Topology mathematician leads concept selection
+- Establishes mathematical rigor and parameters
+
+Phase 2: Design (Technical Architecture) 
+- Visualization architect creates implementation strategy
+- Defines technical requirements and approach
+
+Phase 3: Implementation (Code Development)
+- Python developer builds the visualization system
+- Creates all interactive and computational components
+
+Phase 4: Documentation (Educational Materials)
+- Documentation specialist creates comprehensive guides
+- Ensures educational accessibility and clarity
+
+Phase 5: Integration (Quality Assurance)
+- All agents collaborate on final integration
+- Testing, optimization, and deployment preparation
+
+EXPECTED DELIVERABLES:
+- Interactive Python visualization application
+- Mathematical analysis and theoretical documentation  
+- Technical implementation documentation
+- Educational user guides and tutorials
+- Deployment package with installation instructions
+
+QUALITY CRITERIA:
+- Mathematical accuracy and rigor
+- Visual clarity and educational value
+- Code quality and performance
+- Documentation completeness
+- Cross-platform compatibility

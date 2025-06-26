@@ -1,0 +1,37 @@
+{
+  "name": "Topology Visualization Workflow",
+  "description": "Comprehensive workflow for creating educational visualizations of unique mathematical topology concepts, involving mathematical analysis, visualization design, implementation, and documentation.",
+  "workflow_type": "ORCHESTRATOR",
+  "user_objective": "Create an interactive visualization of a unique mathematical concept from topology that showcases the essential topological properties while being educationally accessible to students and researchers.",
+  "agent_ids": [
+    "topology_mathematician",
+    "visualization_architect", 
+    "python_developer",
+    "documentation_specialist"
+  ],
+  "task_ids": [
+    "concept_selection_and_analysis",
+    "visualization_design_and_architecture",
+    "python_implementation_development",
+    "educational_documentation_creation",
+    "integration_testing_and_optimization"
+  ],
+  "metadata": {
+    "domain": "mathematics_visualization",
+    "complexity": "high",
+    "duration_estimate": "540_minutes",
+    "deliverables": [
+      "interactive_topology_visualization",
+      "mathematical_analysis_document",
+      "python_implementation_code",
+      "educational_documentation",
+      "deployment_package"
+    ],
+    "target_audience": [
+      "mathematics_students",
+      "researchers", 
+      "educators",
+      "visualization_enthusiasts"
+    ]
+  }
+}

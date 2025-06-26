@@ -1,0 +1,34 @@
+WORKFLOW OBJECTIVE FOR STEP 2 - DEFINE OBJECTIVE & ANALYZE:
+
+Create an interactive visualization of a unique mathematical concept from topology that showcases the essential topological properties while being educationally accessible to students and researchers.
+
+DETAILED OBJECTIVE DESCRIPTION:
+
+The primary goal is to develop a comprehensive educational visualization system that:
+
+1. MATHEMATICAL RIGOR: Select and accurately represent a fascinating topology concept (such as knot theory, manifolds, or topological invariants) with proper mathematical foundations and theoretical context.
+
+2. VISUAL EXCELLENCE: Create stunning 3D visualizations that clearly demonstrate the essential topological properties, transformations, and relationships inherent in the chosen concept.
+
+3. EDUCATIONAL VALUE: Develop materials that make complex topology accessible across different knowledge levels, from undergraduate students to advanced researchers.
+
+4. INTERACTIVE EXPLORATION: Implement interactive features that allow users to manipulate parameters, explore edge cases, and gain intuitive understanding of the mathematical concepts.
+
+5. COMPREHENSIVE DOCUMENTATION: Provide thorough documentation that explains both the mathematics and the visualization techniques, enabling others to learn from and build upon the work.
+
+EXPECTED OUTCOMES:
+
+- A fully functional Python-based visualization system
+- Interactive 3D renderings of the selected topology concept
+- Mathematical analysis and theoretical documentation
+- Educational materials and user guides
+- Reusable code components for future topology visualizations
+
+TARGET CONCEPTS (Examples):
+- Knot theory: Trefoil knots, torus knots, knot invariants
+- Manifolds: Klein bottles, Möbius strips, hyperbolic surfaces
+- Homotopy: Fundamental groups, covering spaces
+- Topological invariants: Euler characteristic, genus
+- Fiber bundles: Hopf fibrations, vector bundles
+
+This workflow will demonstrate the power of combining mathematical expertise, visualization design, programming skills, and educational communication to create meaningful learning tools for the mathematical community.
