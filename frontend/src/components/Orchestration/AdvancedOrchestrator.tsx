@@ -73,6 +73,7 @@ export default function AdvancedOrchestrator() {
   });
 
   const [directoryValid, setDirectoryValid] = useState(false);
+  const [editingPatternId, setEditingPatternId] = useState<string | null>(null);
 
   const { isOpen: isCreateOpen, onOpen: onCreateOpen, onClose: onCreateClose } = useDisclosure();
   const { isOpen: isMonitorOpen, onOpen: onMonitorOpen, onClose: onMonitorClose } = useDisclosure();
@@ -200,36 +201,49 @@ export default function AdvancedOrchestrator() {
       // Use AI recommendation if user didn't select a workflow type
       const workflowType = createForm.workflowType || (analysis?.recommended_workflow.toUpperCase());
       
-      await advancedOrchestrationService.createWorkflowPattern({
+      const patternData = {
         name: createForm.name,
         description: createForm.description,
         agent_ids: createForm.selectedAgents,
         task_ids: createForm.selectedTasks,
         user_objective: createForm.objective,
         workflow_type: workflowType,
-      });
+      };
 
-      toast({
-        title: 'Workflow pattern created successfully',
-        status: 'success',
-        duration: 3000,
-      });
+      if (editingPatternId) {
+        // Update existing pattern
+        await advancedOrchestrationService.updateWorkflowPattern(editingPatternId, patternData);
+        toast({
+          title: 'Workflow pattern updated successfully',
+          status: 'success',
+          duration: 3000,
+        });
+      } else {
+        // Create new pattern
+        await advancedOrchestrationService.createWorkflowPattern(patternData);
+        toast({
+          title: 'Workflow pattern created successfully',
+          status: 'success',
+          duration: 3000,
+        });
+      }
 
-      setCreateForm({
+      setCreateForm(prev => ({
         name: '',
         description: '',
         objective: '',
         selectedAgents: [],
         selectedTasks: [],
         workflowType: '',
-        projectDirectory: '/mnt/e/Development/mcp_a2a/project_selfdevelop',
-      });
+        projectDirectory: prev.projectDirectory, // Preserve user's directory choice
+      }));
       setAnalysis(null);
-      onCreateClose();
+      setEditingPatternId(null); // Clear editing mode
+      onAnalyzeClose();
       fetchData();
     } catch (error) {
       toast({
-        title: 'Failed to create workflow pattern',
+        title: editingPatternId ? 'Failed to update workflow pattern' : 'Failed to create workflow pattern',
         description: error instanceof Error ? error.message : 'Unknown error',
         status: 'error',
         duration: 3000,
@@ -262,16 +276,19 @@ export default function AdvancedOrchestrator() {
   const editWorkflowPattern = (patternId: string) => {
     const pattern = workflowPatterns.find(p => p.id === patternId);
     if (pattern) {
+      // Set editing mode
+      setEditingPatternId(patternId);
+      
       // Pre-fill form with existing pattern data
-      setCreateForm({
+      setCreateForm(prev => ({
         name: pattern.name,
         description: pattern.description,
         objective: pattern.user_objective,
         selectedAgents: pattern.agent_ids || [],
         selectedTasks: pattern.task_ids || [],
         workflowType: pattern.workflow_type,
-        projectDirectory: '/mnt/e/Development/mcp_a2a/project_selfdevelop',
-      });
+        projectDirectory: prev.projectDirectory, // Preserve user's current directory choice
+      }));
       onAnalyzeOpen();
     }
   };
@@ -476,10 +493,15 @@ export default function AdvancedOrchestrator() {
       )}
 
       {/* Analyze & Create Modal */}
-      <Modal isOpen={isAnalyzeOpen} onClose={onAnalyzeClose} size="6xl">
+      <Modal isOpen={isAnalyzeOpen} onClose={() => {
+        setEditingPatternId(null);
+        onAnalyzeClose();
+      }} size="6xl">
         <ModalOverlay />
         <ModalContent maxW="90vw">
-          <ModalHeader>🧠 Intelligent Workflow Creation</ModalHeader>
+          <ModalHeader>
+            🧠 {editingPatternId ? 'Edit Workflow Pattern' : 'Intelligent Workflow Creation'}
+          </ModalHeader>
           <ModalCloseButton />
           <ModalBody pb={6}>
             <Tabs>
@@ -654,33 +676,17 @@ export default function AdvancedOrchestrator() {
                         Directory where agents will operate and produce outputs
                       </Text>
                       <VStack spacing={2} align="stretch">
-                        <HStack>
-                          <Input
-                            value={createForm.projectDirectory}
-                            onChange={(e) => {
-                              const newDir = e.target.value;
-                              setCreateForm(prev => ({ ...prev, projectDirectory: newDir }));
-                              if (newDir) checkDirectoryValidity(newDir);
-                            }}
-                            placeholder="Enter project directory path..."
-                            fontFamily="mono"
-                            fontSize="sm"
-                          />
-                          <Button 
-                            size="md" 
-                            colorScheme="blue" 
-                            leftIcon={<FiFolder />}
-                            onClick={() => {
-                              const newDir = prompt('Enter project directory path:', createForm.projectDirectory);
-                              if (newDir && newDir !== createForm.projectDirectory) {
-                                setCreateForm(prev => ({ ...prev, projectDirectory: newDir }));
-                                checkDirectoryValidity(newDir);
-                              }
-                            }}
-                          >
-                            Browse
-                          </Button>
-                        </HStack>
+                        <Input
+                          value={createForm.projectDirectory}
+                          onChange={(e) => {
+                            const newDir = e.target.value;
+                            setCreateForm(prev => ({ ...prev, projectDirectory: newDir }));
+                            if (newDir) checkDirectoryValidity(newDir);
+                          }}
+                          placeholder="Enter project directory path..."
+                          fontFamily="mono"
+                          fontSize="sm"
+                        />
                         <HStack justify="space-between">
                           <Text fontSize="xs" color="gray.500">
                             Agents and tasks will operate in this directory
@@ -696,19 +702,20 @@ export default function AdvancedOrchestrator() {
 
                     <HStack spacing={3} pt={4}>
                       <Button colorScheme="purple" onClick={createWorkflowPattern}>
-                        Create Workflow Pattern
+                        {editingPatternId ? 'Update Workflow Pattern' : 'Create Workflow Pattern'}
                       </Button>
                       <Button onClick={() => {
-                        setCreateForm({
+                        setCreateForm(prev => ({
                           name: '',
                           description: '',
                           objective: '',
                           selectedAgents: [],
                           selectedTasks: [],
                           workflowType: '',
-                          projectDirectory: '/mnt/e/Development/mcp_a2a/project_selfdevelop',
-                        });
+                          projectDirectory: prev.projectDirectory, // Preserve user's directory choice
+                        }));
                         setAnalysis(null);
+                        setEditingPatternId(null); // Clear editing mode
                         onAnalyzeClose();
                       }}>Cancel</Button>
                     </HStack>

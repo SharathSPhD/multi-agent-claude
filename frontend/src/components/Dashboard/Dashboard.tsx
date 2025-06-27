@@ -31,6 +31,7 @@ import {
 } from '@chakra-ui/react';
 import { FiPlay, FiPause, FiClock, FiActivity, FiAlertCircle, FiTrash2, FiSkipForward, FiX } from 'react-icons/fi';
 import { apiService, Agent, Task } from '../../services/api';
+import { advancedOrchestrationService } from '../../services/advancedOrchestration';
 
 // Dynamic API base to work with both localhost and WSL IP
 const getApiBase = () => {
@@ -191,6 +192,37 @@ export default function Dashboard() {
     } catch (error) {
       toast({
         title: 'Failed to abort execution',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        status: 'error',
+        duration: 3000,
+      });
+    }
+  };
+
+  const deleteExecution = async (executionId: string, executionType: string = 'execution') => {
+    try {
+      if (executionType === 'workflow') {
+        await advancedOrchestrationService.deleteWorkflowExecution(executionId);
+      } else {
+        // For individual executions, use the regular API
+        const response = await fetch(`${getApiBase()}/api/execution/${executionId}`, {
+          method: 'DELETE',
+        });
+        if (!response.ok) throw new Error('Failed to delete execution');
+      }
+      
+      toast({
+        title: 'Execution deleted',
+        status: 'success',
+        duration: 3000,
+      });
+      
+      setTimeout(() => {
+        fetchData();
+      }, 1000);
+    } catch (error) {
+      toast({
+        title: 'Failed to delete execution',
         description: error instanceof Error ? error.message : 'Unknown error',
         status: 'error',
         duration: 3000,
@@ -549,6 +581,17 @@ export default function Dashboard() {
                                   onClick={() => cancelExecution(execution.id)}
                                 >
                                   Cancel
+                                </Button>
+                              )}
+                              {['completed', 'failed', 'cancelled'].includes(execution.status) && (
+                                <Button
+                                  size="xs"
+                                  colorScheme="red"
+                                  variant="outline"
+                                  leftIcon={<FiTrash2 />}
+                                  onClick={() => deleteExecution(execution.id, execution.type)}
+                                >
+                                  Delete
                                 </Button>
                               )}
                             </HStack>

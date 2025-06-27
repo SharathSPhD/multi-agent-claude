@@ -166,12 +166,46 @@ class AdvancedOrchestrationService {
     return data;
   }
 
+  async updateWorkflowPattern(patternId: string, data: {
+    name: string;
+    description: string;
+    agent_ids: string[];
+    task_ids: string[];
+    user_objective?: string;
+    workflow_type?: string;
+  }): Promise<WorkflowPattern> {
+    const response = await fetch(`${API_BASE}/api/workflows/patterns/${patternId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    
+    if (!response.ok) throw new Error('Failed to update workflow pattern');
+    return response.json();
+  }
+
   async deleteWorkflowPattern(patternId: string): Promise<void> {
     const response = await fetch(`${API_BASE}/api/workflows/patterns/${patternId}`, {
       method: 'DELETE',
     });
     
     if (!response.ok) throw new Error('Failed to delete workflow pattern');
+  }
+
+  async abortWorkflowExecution(executionId: string): Promise<void> {
+    const response = await fetch(`${API_BASE}/api/workflows/executions/${executionId}/abort`, {
+      method: 'POST',
+    });
+    
+    if (!response.ok) throw new Error('Failed to abort workflow execution');
+  }
+
+  async deleteWorkflowExecution(executionId: string): Promise<void> {
+    const response = await fetch(`${API_BASE}/api/workflows/executions/${executionId}`, {
+      method: 'DELETE',
+    });
+    
+    if (!response.ok) throw new Error('Failed to delete workflow execution');
   }
 }
 

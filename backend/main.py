@@ -11,6 +11,7 @@ from typing import List, Dict, Any, Optional
 import uuid
 import json
 import asyncio
+import logging
 from datetime import datetime
 
 from database import get_db, engine
@@ -28,6 +29,9 @@ from services.advanced_orchestrator import (
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 # Cleanup orphaned executions on startup
 def cleanup_orphaned_executions():
@@ -767,6 +771,38 @@ async def abort_execution(execution_id: str, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@app.delete("/api/execution/{execution_id}")
+async def delete_execution(execution_id: str, db: Session = Depends(get_db)):
+    """Delete an individual execution record."""
+    try:
+        # Find the execution
+        execution = db.query(Execution).filter(Execution.id == execution_id).first()
+        if not execution:
+            raise HTTPException(status_code=404, detail="Execution not found")
+        
+        # Only allow deletion of non-running executions
+        if execution.status == "running":
+            raise HTTPException(
+                status_code=400, 
+                detail="Cannot delete running execution. Abort it first."
+            )
+        
+        # Delete the execution record
+        db.delete(execution)
+        db.commit()
+        
+        return {
+            "message": "Execution deleted successfully", 
+            "execution_id": execution_id,
+            "status": execution.status
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete execution: {str(e)}")
+
 
 # Dashboard and System Status Endpoints
 @app.get("/api/dashboard/status", response_model=SystemStatus)
@@ -1152,6 +1188,90 @@ async def list_workflow_patterns(
             }
         )
 
+@app.put("/api/workflows/patterns/{pattern_id}")
+async def update_workflow_pattern(
+    pattern_id: str,
+    request: Dict[str, Any],
+    db: Session = Depends(get_db)
+):
+    """Update an existing workflow pattern."""
+    from models import WorkflowPattern, Agent, Task
+    
+    try:
+        # Find existing pattern
+        pattern = db.query(WorkflowPattern).filter(WorkflowPattern.id == pattern_id).first()
+        if not pattern:
+            raise HTTPException(status_code=404, detail="Workflow pattern not found")
+        
+        # Extract and validate fields
+        name = request.get("name", "").strip()
+        description = request.get("description", "").strip()
+        agent_ids = request.get("agent_ids", [])
+        task_ids = request.get("task_ids", [])
+        user_objective = request.get("user_objective", "").strip()
+        workflow_type = request.get("workflow_type")
+        
+        # Validate required fields
+        if not name:
+            raise HTTPException(status_code=400, detail="name is required and cannot be empty")
+        if not description:
+            raise HTTPException(status_code=400, detail="description is required and cannot be empty")
+        if not agent_ids:
+            raise HTTPException(status_code=400, detail="agent_ids is required and cannot be empty")
+        if not task_ids:
+            raise HTTPException(status_code=400, detail="task_ids is required and cannot be empty")
+        
+        # Check for duplicate name (excluding current pattern)
+        existing_pattern = db.query(WorkflowPattern).filter(
+            WorkflowPattern.name == name,
+            WorkflowPattern.id != pattern_id
+        ).first()
+        if existing_pattern:
+            raise HTTPException(status_code=409, detail=f"Workflow pattern with name '{name}' already exists")
+        
+        # Validate agent and task existence
+        agents = db.query(Agent).filter(Agent.id.in_(agent_ids)).all()
+        if len(agents) != len(agent_ids):
+            missing_agents = set(agent_ids) - {a.id for a in agents}
+            raise HTTPException(status_code=404, detail=f"Agents not found: {list(missing_agents)}")
+        
+        tasks = db.query(Task).filter(Task.id.in_(task_ids)).all()
+        if len(tasks) != len(task_ids):
+            missing_tasks = set(task_ids) - {t.id for t in tasks}
+            raise HTTPException(status_code=404, detail=f"Tasks not found: {list(missing_tasks)}")
+        
+        # Update pattern fields
+        pattern.name = name
+        pattern.description = description
+        pattern.agent_ids = agent_ids
+        pattern.task_ids = task_ids
+        pattern.user_objective = user_objective
+        if workflow_type:
+            pattern.workflow_type = workflow_type.lower()
+        pattern.updated_at = datetime.utcnow()
+        
+        db.commit()
+        db.refresh(pattern)
+        
+        return {
+            "id": pattern.id,
+            "name": pattern.name,
+            "description": pattern.description,
+            "workflow_type": pattern.workflow_type,
+            "agent_ids": pattern.agent_ids,
+            "task_ids": pattern.task_ids,
+            "user_objective": pattern.user_objective,
+            "status": pattern.status,
+            "created_at": pattern.created_at.isoformat(),
+            "updated_at": pattern.updated_at.isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update workflow pattern: {str(e)}")
+
 @app.delete("/api/workflows/patterns/{pattern_id}")
 async def delete_workflow_pattern(
     pattern_id: str, 
@@ -1338,23 +1458,27 @@ async def execute_workflow_pattern(
                 detail=f"Cannot execute workflow: agents are busy: {busy_agent_names}"
             )
         
-        # Create workflow execution record with enhanced tracking
-        workflow_execution = WorkflowExecution(
-            id=str(uuid.uuid4()),
-            pattern_id=pattern_id,
-            status="starting",
-            start_time=execution_start_time,
-            progress_percentage=0.0,
-            execution_context=context or {},
-            agent_assignments=[{"agent_id": a.id, "agent_name": a.name} for a in agents],
-            task_assignments=[{"task_id": t.id, "task_title": t.title} for t in tasks]
-        )
-        
+        # Create workflow execution record with proper field validation
+        execution_id = str(uuid.uuid4())
         try:
+            workflow_execution = WorkflowExecution(
+                pattern_id=pattern_id,
+                status="starting",
+                start_time=execution_start_time,
+                progress_percentage=0.0
+            )
+            
+            logger.info(f"[{execution_id}] Created WorkflowExecution object successfully")
+            
             db.add(workflow_execution)
             db.commit()
             db.refresh(workflow_execution)
+            
+            logger.info(f"[{execution_id}] Saved WorkflowExecution to database: {workflow_execution.id}")
+            
         except Exception as db_error:
+            logger.error(f"[{execution_id}] Database error creating WorkflowExecution: {str(db_error)}")
+            logger.error(f"[{execution_id}] WorkflowExecution fields: pattern_id={pattern_id}, status=starting, start_time={execution_start_time}")
             db.rollback()
             raise HTTPException(
                 status_code=500,
@@ -1405,9 +1529,26 @@ async def execute_workflow_pattern(
                 orchestrator_pattern, agents, tasks, db
             )
             
-            # Update execution with results
+            # Update execution with results (serialize datetime objects)
             workflow_execution.status = execution.status if hasattr(execution, 'status') else "completed"
-            workflow_execution.results = execution.dict() if hasattr(execution, 'dict') else {}
+            
+            # Convert execution results to JSON-serializable format
+            if hasattr(execution, 'dict'):
+                results_dict = execution.dict()
+                # Convert datetime objects to ISO strings for JSON serialization
+                def serialize_datetime_objects(obj):
+                    if isinstance(obj, datetime):
+                        return obj.isoformat()
+                    elif isinstance(obj, dict):
+                        return {k: serialize_datetime_objects(v) for k, v in obj.items()}
+                    elif isinstance(obj, list):
+                        return [serialize_datetime_objects(item) for item in obj]
+                    return obj
+                
+                workflow_execution.results = serialize_datetime_objects(results_dict)
+            else:
+                workflow_execution.results = {}
+                
             workflow_execution.progress_percentage = 100.0
             workflow_execution.end_time = datetime.utcnow()
             
@@ -1671,6 +1812,40 @@ async def abort_workflow_execution(execution_id: str, db: Session = Depends(get_
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to abort workflow execution: {str(e)}")
+
+@app.delete("/api/workflows/executions/{execution_id}")
+async def delete_workflow_execution(execution_id: str, db: Session = Depends(get_db)):
+    """Delete a workflow execution record."""
+    from models import WorkflowExecution
+    
+    try:
+        # Find the execution
+        execution = db.query(WorkflowExecution).filter(WorkflowExecution.id == execution_id).first()
+        if not execution:
+            raise HTTPException(status_code=404, detail="Workflow execution not found")
+        
+        # Only allow deletion of non-running executions
+        if execution.status == "running":
+            raise HTTPException(
+                status_code=400, 
+                detail="Cannot delete running execution. Abort it first."
+            )
+        
+        # Delete the execution record
+        db.delete(execution)
+        db.commit()
+        
+        return {
+            "message": "Workflow execution deleted successfully", 
+            "execution_id": execution_id,
+            "status": execution.status
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete workflow execution: {str(e)}")
 
 @app.get("/api/workflows/communications/{execution_id}")
 async def get_agent_communications(execution_id: str):

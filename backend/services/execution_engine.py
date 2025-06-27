@@ -32,6 +32,16 @@ class ExecutionEngine:
         # Timeout settings
         self.DEFAULT_TIMEOUT = 300  # 5 minutes
         self.MAX_TIMEOUT = 600     # 10 minutes
+    
+    def _add_log(self, execution: Execution, message: str, level: str = "info") -> None:
+        """Helper to properly add logs to execution (handles JSON field correctly)."""
+        current_logs = execution.logs or []
+        current_logs.append({
+            "timestamp": datetime.utcnow().isoformat(),
+            "message": message,
+            "level": level
+        })
+        execution.logs = current_logs
         
     def set_websocket_manager(self, websocket_manager: Any):
         """Inject WebSocket manager for real-time updates."""
@@ -188,20 +198,23 @@ class ExecutionEngine:
         primary_agent = agents[0]
         
         # Try Claude Code SDK with short timeout first
+        self._add_log(execution, f"Starting Claude SDK execution for task: {task.title}")
+        db.commit()
+        
         try:
             result = await self._execute_with_claude_sdk_timeout(db, execution, task, primary_agent, work_dir, timeout=60)
             if result:
+                self._add_log(execution, f"Claude SDK execution completed successfully")
                 execution.status = "completed"
                 execution.output = result
+                execution.agent_response = result  # Store agent response for dashboard
                 task.status = TaskStatus.COMPLETED
                 task.completed_at = datetime.utcnow()
+                db.commit()
                 return
         except Exception as e:
-            execution.logs.append({
-                "timestamp": datetime.utcnow().isoformat(),
-                "message": f"Claude SDK failed: {str(e)}, using fallback",
-                "level": "warning"
-            })
+            self._add_log(execution, f"Claude SDK failed: {str(e)}, using fallback", "warning")
+            db.commit()
         
         # Fallback to expert system
         result = await self._execute_with_expert_fallback(db, execution, task, primary_agent)
@@ -288,30 +301,31 @@ Work efficiently and provide concrete deliverables."""
         
         try:
             # Execute with timeout
-            result = await asyncio.wait_for(
+            self._add_log(execution, f"Starting Claude CLI: {' '.join(claude_cmd)}")
+            db.commit()
+            
+            process = await asyncio.wait_for(
                 asyncio.create_subprocess_exec(
                     *claude_cmd,
                     cwd=str(work_path),
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 ),
-                timeout=timeout
+                timeout=5  # 5 second timeout just to create the process
             )
             
-            stdout, stderr = await result.communicate()
+            self._add_log(execution, f"Claude CLI process created, waiting for completion...")
+            db.commit()
             
-            execution.logs.append({
-                "timestamp": datetime.utcnow().isoformat(),
-                "message": f"Claude CLI completed with return code: {result.returncode}",
-                "level": "info"
-            })
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=timeout - 10  # Reserve 10 seconds for setup
+            )
+            
+            self._add_log(execution, f"Claude CLI completed with return code: {process.returncode}")
             
             if stderr:
-                execution.logs.append({
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "message": f"Claude CLI stderr: {stderr.decode()}",
-                    "level": "warning"
-                })
+                self._add_log(execution, f"Claude CLI stderr: {stderr.decode()}", "warning")
             
             db.commit()
             
