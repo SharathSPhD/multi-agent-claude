@@ -200,12 +200,27 @@ export default function Dashboard() {
     }
   };
 
-  const deleteExecution = async (executionId: string, executionType: string = 'execution') => {
+  const deleteExecution = async (executionId: string, executionType: string = 'execution', executionStatus?: string) => {
     try {
+      // If execution is running, abort it first then delete
+      if (executionStatus === 'running' || executionStatus === 'pending') {
+        const abortEndpoint = executionType === 'workflow' 
+          ? `/api/workflows/executions/${executionId}/abort`
+          : `/api/execution/${executionId}/abort`;
+        
+        const abortResponse = await fetch(`${getApiBase()}${abortEndpoint}`, { method: 'POST' });
+        if (!abortResponse.ok) {
+          throw new Error('Failed to stop running execution');
+        }
+        
+        // Wait a moment for abort to process
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+
+      // Now delete the execution
       if (executionType === 'workflow') {
         await advancedOrchestrationService.deleteWorkflowExecution(executionId);
       } else {
-        // For individual executions, use the regular API
         const response = await fetch(`${getApiBase()}/api/execution/${executionId}`, {
           method: 'DELETE',
         });
@@ -214,6 +229,7 @@ export default function Dashboard() {
       
       toast({
         title: 'Execution deleted',
+        description: executionStatus === 'running' || executionStatus === 'pending' ? 'Execution was stopped and deleted' : 'Execution deleted',
         status: 'success',
         duration: 3000,
       });
@@ -590,7 +606,7 @@ export default function Dashboard() {
                                   colorScheme="red"
                                   variant="outline"
                                   leftIcon={<FiTrash2 />}
-                                  onClick={() => deleteExecution(execution.id, execution.type)}
+                                  onClick={() => deleteExecution(execution.id, execution.type, execution.status)}
                                 >
                                   Delete
                                 </Button>

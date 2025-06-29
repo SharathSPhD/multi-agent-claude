@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-MCP Multi-Agent System Launcher v2.1
-Simple launcher to start backend and frontend services
+MCP Multi-Agent System Launcher v2.2
+Enhanced launcher with database cleanup and system health checks
 """
 
 import os
@@ -27,17 +27,77 @@ def print_banner():
     print(f"""
 {Colors.BLUE}{Colors.BOLD}
 ╔══════════════════════════════════════════════════════════╗
-║           MCP Multi-Agent System v2.1 Launcher          ║
+║           MCP Multi-Agent System v2.2 Launcher          ║
 ║                                                          ║
-║  🤖 Dynamic Agent Configuration & Management             ║
+║  🤖 End-to-End Workflow Execution System                ║
 ║  🌐 React Web Interface with Full Controls               ║
-║  ⚡ Async Multi-Agent Execution & State Management       ║
-║  💾 Real-time Database & Memory Integration              ║
-║  🎮 Workflow Controls: Pause/Resume/Abort               ║
-║  🗑️ Safe Agent Deletion with Task Handling              ║
+║  ⚡ Multi-Agent Coordination & Task Distribution         ║
+║  💾 Database Persistence & State Management              ║
+║  🧹 Automatic Cleanup & Health Monitoring               ║
+║  🗑️ Proper Workflow Deletion vs Abort/Cancel            ║
 ╚══════════════════════════════════════════════════════════╝
 {Colors.END}
 """)
+
+def cleanup_database():
+    """Clean up stale workflow executions on startup"""
+    print(f"{Colors.YELLOW}🧹 Cleaning up stale workflow executions...{Colors.END}")
+    
+    try:
+        import sqlite3
+        from datetime import datetime, timedelta
+        
+        db_path = 'mcp_multiagent.db'
+        if not Path(db_path).exists():
+            print("✅ No database found - will be created on first use")
+            return
+        
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Check if workflow_executions table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='workflow_executions'")
+        if not cursor.fetchone():
+            print("✅ No workflow executions table - clean state")
+            conn.close()
+            return
+        
+        # Clean up stale executions (older than 1 hour or stuck in running state)
+        one_hour_ago = (datetime.now() - timedelta(hours=1)).isoformat()
+        
+        # Delete old completed/failed/cancelled executions
+        cursor.execute('DELETE FROM workflow_executions WHERE status IN ("completed", "failed") AND start_time < ?', (one_hour_ago,))
+        old_deleted = cursor.rowcount
+        
+        # Abort stuck executions (running/pending for > 1 hour)
+        cursor.execute('UPDATE workflow_executions SET status = "aborted", end_time = ?, error_details = ? WHERE status IN ("running", "pending", "in_progress") AND start_time < ?',
+                      (datetime.now().isoformat(), "Auto-aborted: System restart cleanup", one_hour_ago))
+        stuck_aborted = cursor.rowcount
+        
+        # Clean up regular tasks table as well
+        tasks_cleaned = 0
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'")
+        if cursor.fetchone():
+            # Cancel any stuck tasks (IN_PROGRESS, PENDING, RUNNING)
+            cursor.execute('UPDATE tasks SET status = "CANCELLED" WHERE status IN ("IN_PROGRESS", "PENDING", "RUNNING")')
+            tasks_cleaned = cursor.rowcount
+        
+        conn.commit()
+        
+        # Report cleanup
+        cursor.execute('SELECT COUNT(*) FROM workflow_executions')
+        remaining = cursor.fetchone()[0]
+        
+        print(f"✅ Database cleanup complete:")
+        print(f"   - Deleted {old_deleted} old completed/failed workflow executions")
+        print(f"   - Aborted {stuck_aborted} stuck workflow executions")
+        print(f"   - Cancelled {tasks_cleaned} stuck tasks")  
+        print(f"   - Remaining workflow executions: {remaining}")
+        
+        conn.close()
+        
+    except Exception as e:
+        print(f"{Colors.YELLOW}⚠️  Database cleanup error: {e}{Colors.END}")
 
 def check_environment():
     """Check basic environment requirements"""
@@ -66,6 +126,9 @@ def check_environment():
         print("✅ Claude Code SDK available")
     except ImportError:
         print(f"{Colors.YELLOW}⚠️  Claude Code SDK not found - install with: uv pip install claude-code-sdk{Colors.END}")
+    
+    # Check database and clean up
+    cleanup_database()
     
     print(f"{Colors.GREEN}✅ Environment ready!{Colors.END}")
     return True
@@ -169,8 +232,58 @@ def quick_health_check():
         print("⚠️  Cannot check - requests library not available")
 
 def cleanup_and_exit(backend_process, frontend_process):
-    """Clean shutdown of services"""
+    """Clean shutdown of services and workflow cleanup"""
     print(f"\n{Colors.YELLOW}🛑 Shutting down services...{Colors.END}")
+    
+    # Clean up any running workflow executions in database
+    try:
+        import sqlite3
+        from datetime import datetime
+        
+        conn = sqlite3.connect('mcp_multiagent.db')
+        cursor = conn.cursor()
+        
+        # Check for running executions and abort them
+        cursor.execute('SELECT id FROM workflow_executions WHERE status IN ("running", "pending", "in_progress")')
+        running_executions = cursor.fetchall()
+        
+        if running_executions:
+            print(f"🧹 Aborting {len(running_executions)} running workflow executions...")
+            cursor.execute('UPDATE workflow_executions SET status = "aborted", end_time = ?, error_details = ? WHERE status IN ("running", "pending", "in_progress")',
+                          (datetime.now().isoformat(), "System shutdown"))
+            conn.commit()
+        
+        conn.close()
+    except Exception as e:
+        print(f"⚠️  Database cleanup error: {e}")
+    
+    # Kill any orphaned Claude CLI processes (excluding this session)
+    try:
+        # Get current process to exclude it
+        current_pid = os.getpid()
+        result = subprocess.run(['ps', 'aux'], capture_output=True, text=True)
+        claude_processes = []
+        
+        for line in result.stdout.split('\n'):
+            if 'claude' in line and 'claude-code' not in line and str(current_pid) not in line:
+                parts = line.split()
+                if len(parts) > 1:
+                    try:
+                        pid = int(parts[1])
+                        claude_processes.append(pid)
+                    except ValueError:
+                        continue
+        
+        if claude_processes:
+            print(f"🧹 Cleaning up {len(claude_processes)} orphaned Claude CLI processes...")
+            for pid in claude_processes:
+                try:
+                    subprocess.run(['kill', str(pid)], stderr=subprocess.DEVNULL)
+                except:
+                    pass
+        
+    except Exception as e:
+        print(f"⚠️  Claude process cleanup: {e}")
     
     # Kill backend processes
     try:

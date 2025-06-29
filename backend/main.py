@@ -1661,39 +1661,17 @@ async def execute_workflow_pattern(
         
         try:
             execution = await advanced_orchestrator.execute_workflow(
-                orchestrator_pattern, agents, tasks, db
+                orchestrator_pattern, agents, tasks, db, workflow_execution.id
             )
             
-            # Update execution with results (serialize datetime objects)
-            workflow_execution.status = execution.status if hasattr(execution, 'status') else "completed"
-            
-            # Convert execution results to JSON string for Text field
-            if hasattr(execution, 'dict'):
-                results_dict = execution.dict()
-                # Convert datetime objects and enums to JSON-serializable format
-                def serialize_datetime_objects(obj):
-                    if isinstance(obj, datetime):
-                        return obj.isoformat()
-                    elif hasattr(obj, 'value'):  # Handle enums like WorkflowType
-                        return obj.value
-                    elif isinstance(obj, dict):
-                        return {k: serialize_datetime_objects(v) for k, v in obj.items()}
-                    elif isinstance(obj, list):
-                        return [serialize_datetime_objects(item) for item in obj]
-                    return obj
-                
-                serialized_results = serialize_datetime_objects(results_dict)
-                workflow_execution.results = json.dumps(serialized_results)
-            else:
-                workflow_execution.results = "{}"
-                
-            workflow_execution.end_time = datetime.utcnow()
+            # The orchestrator now handles database updates directly
+            # Refresh the database record to get updated values
+            db.refresh(workflow_execution)
             
         except Exception as exec_error:
-            workflow_execution.status = "failed"
-            workflow_execution.error_message = str(exec_error)
-            workflow_execution.end_time = datetime.utcnow()
-            db.commit()
+            # The orchestrator already updated the database with failure status
+            # Just refresh to get the updated values
+            db.refresh(workflow_execution)
             
             error_id = str(uuid.uuid4())[:8]
             print(f"[ERROR-{error_id}] Workflow execution failed: {str(exec_error)}")
@@ -1760,7 +1738,7 @@ async def execute_workflow_pattern(
 @app.get("/api/workflows/executions/{execution_id}")
 async def get_execution_status(execution_id: str):
     """Get real-time execution status."""
-    execution = advanced_orchestrator.get_execution_status(execution_id)
+    execution = await advanced_orchestrator.get_execution_status(execution_id)
     if not execution:
         raise HTTPException(status_code=404, detail="Execution not found")
     return execution.dict()
@@ -1998,7 +1976,7 @@ async def delete_workflow_execution(execution_id: str, db: Session = Depends(get
 @app.get("/api/workflows/communications/{execution_id}")
 async def get_agent_communications(execution_id: str):
     """Get agent communications for specific execution."""
-    communications = advanced_orchestrator.get_agent_communications(execution_id)
+    communications = await advanced_orchestrator.get_agent_communications(execution_id)
     return [comm.dict() for comm in communications]
 
 @app.get("/api/workflows/types")

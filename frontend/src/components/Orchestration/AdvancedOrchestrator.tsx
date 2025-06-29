@@ -189,9 +189,9 @@ export default function AdvancedOrchestrator() {
   };
 
   const createWorkflowPattern = async () => {
-    if (!createForm.name || createForm.selectedAgents.length === 0 || createForm.selectedTasks.length === 0) {
+    if (!createForm.name || createForm.selectedAgents.length === 0 || createForm.selectedTasks.length === 0 || !createForm.projectDirectory || !directoryValid) {
       toast({
-        title: 'Please fill in all required fields',
+        title: 'Please fill in all required fields and ensure project directory is valid',
         status: 'warning',
         duration: 3000,
       });
@@ -347,7 +347,8 @@ export default function AdvancedOrchestrator() {
     try {
       const response = await fetch(`${getApiBase()}/api/project/directory-info?directory=${encodeURIComponent(directory)}`);
       const data = await response.json();
-      setDirectoryValid(data.exists && data.total_files > 0);
+      // Empty directories are valid for workflow creation
+      setDirectoryValid(data.exists);
     } catch (error) {
       setDirectoryValid(false);
     }
