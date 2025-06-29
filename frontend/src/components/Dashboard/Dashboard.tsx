@@ -656,32 +656,42 @@ export default function Dashboard() {
                                       <Box>
                                         <Text fontSize="xs" fontWeight="bold" color="purple.600">Analysis:</Text>
                                         <Text fontSize="xs" bg="purple.50" p={2} borderRadius="md">
-                                          {execution.agent_response.analysis || 'No analysis available'}
+                                          {typeof execution.agent_response.analysis === 'object' 
+                                            ? JSON.stringify(execution.agent_response.analysis, null, 2)
+                                            : execution.agent_response.analysis || 'No analysis available'}
                                         </Text>
                                       </Box>
                                       <Box>
                                         <Text fontSize="xs" fontWeight="bold" color="blue.600">Approach:</Text>
                                         <Text fontSize="xs" bg="blue.50" p={2} borderRadius="md">
-                                          {execution.agent_response.approach || 'No approach details'}
+                                          {typeof execution.agent_response.approach === 'object'
+                                            ? JSON.stringify(execution.agent_response.approach, null, 2)
+                                            : execution.agent_response.approach || 'No approach details'}
                                         </Text>
                                       </Box>
                                       <Box>
                                         <Text fontSize="xs" fontWeight="bold" color="green.600">Implementation:</Text>
                                         <Text fontSize="xs" bg="green.50" p={2} borderRadius="md" maxH="150px" overflowY="auto">
-                                          {execution.agent_response.implementation || 'No implementation details'}
+                                          {typeof execution.agent_response.implementation === 'object'
+                                            ? JSON.stringify(execution.agent_response.implementation, null, 2)
+                                            : execution.agent_response.implementation || 'No implementation details'}
                                         </Text>
                                       </Box>
                                       <Box>
                                         <Text fontSize="xs" fontWeight="bold" color="orange.600">Results:</Text>
                                         <Text fontSize="xs" bg="orange.50" p={2} borderRadius="md">
-                                          {execution.agent_response.results || 'No results available'}
+                                          {typeof execution.agent_response.results === 'object'
+                                            ? JSON.stringify(execution.agent_response.results, null, 2)
+                                            : execution.agent_response.results || 'No results available'}
                                         </Text>
                                       </Box>
                                       {execution.agent_response.recommendations && (
                                         <Box>
                                           <Text fontSize="xs" fontWeight="bold" color="red.600">Recommendations:</Text>
                                           <Text fontSize="xs" bg="red.50" p={2} borderRadius="md">
-                                            {execution.agent_response.recommendations}
+                                            {typeof execution.agent_response.recommendations === 'object'
+                                              ? JSON.stringify(execution.agent_response.recommendations, null, 2)
+                                              : execution.agent_response.recommendations}
                                           </Text>
                                         </Box>
                                       )}

@@ -1,0 +1,27 @@
+{
+  "name": "Claude Code Research & Reporting Workflow",
+  "description": "A sequential two-phase workflow where Agent1 (InfoGatherer) first conducts web research and creates raw markdown files, then Agent2 (ReportWriter) transforms those files into a professional HTML report.",
+  "workflow_type": "sequential",
+  "user_objective": "Create a comprehensive professional report about Claude Code by first gathering current web information and then transforming it into a polished presentation format.",
+  "project_directory": "/mnt/e/Development/mcp_a2a/examples/reporter",
+  "agent_sequence": [
+    {
+      "agent_file": "agent1_info_gatherer.json",
+      "task_file": "task1_gather_claude_info.json",
+      "step": 1,
+      "description": "Research and gather information about Claude Code from web sources"
+    },
+    {
+      "agent_file": "agent2_report_writer.json", 
+      "task_file": "task2_create_claude_report.json",
+      "step": 2,
+      "description": "Transform raw research into professional HTML report"
+    }
+  ],
+  "execution_notes": [
+    "Step 1: InfoGatherer performs web search and creates markdown files",
+    "Step 2: ReportWriter reads markdown files and creates HTML report",
+    "Sequential execution ensures proper dependency handling",
+    "Work directory contains all intermediate and final files"
+  ]
+}

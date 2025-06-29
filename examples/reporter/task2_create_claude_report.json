@@ -1,0 +1,17 @@
+{
+  "title": "Create Professional Claude Code Report", 
+  "description": "Transform the raw markdown research files about Claude Code into a comprehensive, professional HTML report. Create an executive summary, detailed analysis, and well-formatted presentation suitable for technical stakeholders and decision makers.",
+  "priority": "high",
+  "requirements": [
+    "Read and analyze all markdown files created by the research phase",
+    "Create a comprehensive HTML report with professional styling",
+    "Include an executive summary with key findings",
+    "Organize content into logical sections with proper headings",
+    "Add CSS styling for professional presentation",
+    "Include tables, lists, and visual organization elements",
+    "Provide actionable insights and recommendations"
+  ],
+  "expected_output": "A single comprehensive HTML report file:\n- claude_code_comprehensive_report.html\n\nThe report should include:\n- Executive Summary\n- Overview and Features Analysis  \n- Installation and Setup Guide\n- Usage Recommendations\n- Current Market Position\n- Implementation Considerations\n- Professional CSS styling and formatting",
+  "dependencies": ["task1_gather_claude_info"],
+  "estimated_duration": "10-15 minutes"
+}

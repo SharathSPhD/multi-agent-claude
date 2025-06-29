@@ -534,58 +534,93 @@ export default function AdvancedOrchestrator() {
 
               <TabPanels>
                 <TabPanel>
-                  <SimpleGrid columns={2} spacing={6}>
-                    <FormControl>
-                      <FormLabel>Select Agents</FormLabel>
-                      <CheckboxGroup 
-                        value={createForm.selectedAgents}
-                        onChange={(values) => setCreateForm(prev => ({ ...prev, selectedAgents: values as string[] }))}
-                      >
-                        <Stack spacing={2} maxH="300px" overflowY="auto">
-                          {agents.map(agent => (
-                            <Checkbox key={agent.id} value={agent.id}>
-                              <VStack align="start" spacing={0}>
-                                <Text fontWeight="bold">{agent.name}</Text>
-                                <Text fontSize="sm" color="gray.600">{agent.role}</Text>
-                              </VStack>
-                            </Checkbox>
-                          ))}
-                        </Stack>
-                      </CheckboxGroup>
-                    </FormControl>
+                  <VStack spacing={6}>
+                    <Alert status="info" borderRadius="md">
+                      <AlertIcon />
+                      <VStack align="start" spacing={0} flex="1">
+                        <Text fontSize="sm" fontWeight="bold">
+                          Task Selection for Workflow
+                        </Text>
+                        <Text fontSize="xs" color="gray.600">
+                          Select the tasks you want to include in this workflow. Agents are automatically determined from task assignments, and execution order is controlled by the workflow pattern type.
+                        </Text>
+                      </VStack>
+                    </Alert>
 
                     <FormControl>
-                      <FormLabel>Select Tasks</FormLabel>
-                      {createForm.selectedAgents.length > 0 && (
-                        <Text fontSize="sm" color="blue.600" mb={2}>
-                          Showing tasks assigned to selected agents only
-                        </Text>
-                      )}
+                      <FormLabel>Select Tasks for Workflow</FormLabel>
                       <CheckboxGroup 
                         value={createForm.selectedTasks}
-                        onChange={(values) => setCreateForm(prev => ({ ...prev, selectedTasks: values as string[] }))}
+                        onChange={(values) => {
+                          // Automatically derive agents from selected tasks
+                          const derivedAgents = values.map(taskId => {
+                            const task = tasks.find(t => t.id === taskId);
+                            return task?.assigned_agents?.[0]?.id || '';
+                          }).filter(Boolean);
+                          
+                          setCreateForm(prev => ({ 
+                            ...prev, 
+                            selectedTasks: values as string[],
+                            selectedAgents: [...new Set(derivedAgents)] // Remove duplicates
+                          }));
+                        }}
                       >
-                        <Stack spacing={2} maxH="300px" overflowY="auto">
-                          {tasks
-                            .filter(task => 
-                              createForm.selectedAgents.length === 0 || 
-                              task.assigned_agents?.some(agent => createForm.selectedAgents.includes(agent.id))
-                            )
-                            .map(task => (
+                        <Stack spacing={3} maxH="400px" overflowY="auto">
+                          {tasks.map(task => (
                             <Checkbox key={task.id} value={task.id}>
-                              <VStack align="start" spacing={0}>
-                                <Text fontWeight="bold">{task.title}</Text>
-                                <Text fontSize="sm" color="gray.600">{task.description}</Text>
-                                <Text fontSize="xs" color="blue.500">
-                                  Assigned to: {task.assigned_agents?.length || 0} agent(s)
-                                </Text>
-                              </VStack>
+                              <HStack spacing={3} align="start" width="100%">
+                                <VStack align="start" spacing={1} flex="1">
+                                  <Text fontWeight="bold">{task.title}</Text>
+                                  <Text fontSize="sm" color="gray.600">{task.description}</Text>
+                                  <HStack spacing={2}>
+                                    {task.assigned_agents && task.assigned_agents.length > 0 ? (
+                                      <>
+                                        <Text fontSize="xs" color="green.600" fontWeight="bold">
+                                          Agent: {task.assigned_agents[0].name}
+                                        </Text>
+                                        <Badge colorScheme="green" size="xs">
+                                          {task.assigned_agents[0].role}
+                                        </Badge>
+                                      </>
+                                    ) : (
+                                      <Badge colorScheme="red" size="xs">
+                                        ⚠️ No agent assigned
+                                      </Badge>
+                                    )}
+                                    {task.priority && (
+                                      <Badge colorScheme="purple" size="xs">
+                                        {task.priority}
+                                      </Badge>
+                                    )}
+                                  </HStack>
+                                </VStack>
+                              </HStack>
                             </Checkbox>
                           ))}
                         </Stack>
                       </CheckboxGroup>
+                      
+                      {createForm.selectedTasks.length > 0 && (
+                        <Box mt={4} p={3} bg="blue.50" borderRadius="md">
+                          <Text fontSize="sm" fontWeight="bold" mb={2}>Selected Tasks & Their Agents:</Text>
+                          <VStack align="start" spacing={1}>
+                            {createForm.selectedTasks.map(taskId => {
+                              const task = tasks.find(t => t.id === taskId);
+                              const agent = task?.assigned_agents?.[0];
+                              return (
+                                <Text key={taskId} fontSize="xs">
+                                  • {task?.title || 'Unknown Task'} → {agent?.name || 'No Agent Assigned'}
+                                </Text>
+                              );
+                            })}
+                          </VStack>
+                          <Text fontSize="xs" color="gray.600" mt={2}>
+                            Execution order and coordination will be determined by the workflow pattern you choose.
+                          </Text>
+                        </Box>
+                      )}
                     </FormControl>
-                  </SimpleGrid>
+                  </VStack>
                 </TabPanel>
 
                 <TabPanel>

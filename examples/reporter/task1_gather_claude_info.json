@@ -1,0 +1,16 @@
+{
+  "title": "Gather Claude Code Information",
+  "description": "Research and gather comprehensive information about Claude Code (Anthropic's official CLI tool) from web sources. Create structured markdown files with current information about features, capabilities, installation, usage, and best practices. Focus on official documentation, recent updates, and practical implementation details.",
+  "priority": "high",
+  "requirements": [
+    "Use web search to find current information about Claude Code",
+    "Gather information from official Anthropic sources",
+    "Include installation instructions and system requirements", 
+    "Document key features and capabilities",
+    "Find usage examples and best practices",
+    "Create well-structured markdown files with the research"
+  ],
+  "expected_output": "Multiple markdown files (.md) containing:\n- claude_code_overview.md (general information and features)\n- claude_code_installation.md (installation and setup)\n- claude_code_usage.md (usage examples and best practices)\n- claude_code_updates.md (recent updates and news)\n\nEach file should be well-structured with proper headings, bullet points, and source citations.",
+  "dependencies": [],
+  "estimated_duration": "15-20 minutes"
+}

@@ -1563,14 +1563,7 @@ async def execute_workflow_pattern(
         if not db_pattern.task_ids:
             raise HTTPException(status_code=400, detail="Workflow pattern has no associated tasks")
         
-        agents = db.query(Agent).filter(Agent.id.in_(db_pattern.agent_ids)).all()
-        if len(agents) != len(db_pattern.agent_ids):
-            missing_agents = set(db_pattern.agent_ids) - {a.id for a in agents}
-            raise HTTPException(
-                status_code=404, 
-                detail=f"Referenced agents not found: {list(missing_agents)}"
-            )
-        
+        # Retrieve tasks and their assigned agents
         tasks = db.query(Task).filter(Task.id.in_(db_pattern.task_ids)).all()
         if len(tasks) != len(db_pattern.task_ids):
             missing_tasks = set(db_pattern.task_ids) - {t.id for t in tasks}
@@ -1578,6 +1571,31 @@ async def execute_workflow_pattern(
                 status_code=404, 
                 detail=f"Referenced tasks not found: {list(missing_tasks)}"
             )
+        
+        # Get agents from task assignments (respects task->agent relationships)
+        agent_ids_from_tasks = []
+        for task in tasks:
+            if not task.assigned_agents or len(task.assigned_agents) == 0:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Task '{task.title}' has no assigned agents. Please assign an agent to this task."
+                )
+            # Use the first assigned agent for each task
+            agent_ids_from_tasks.append(task.assigned_agents[0].id)
+        
+        # Retrieve agents based on task assignments
+        unique_agent_ids = list(set(agent_ids_from_tasks))
+        agent_dict = {a.id: a for a in db.query(Agent).filter(Agent.id.in_(unique_agent_ids)).all()}
+        
+        # Create agents list that corresponds to task order
+        agents = []
+        for agent_id in agent_ids_from_tasks:
+            if agent_id not in agent_dict:
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"Agent with ID '{agent_id}' assigned to task not found"
+                )
+            agents.append(agent_dict[agent_id])
         
         # Check for busy agents
         busy_agents = [a for a in agents if a.status == AgentStatus.EXECUTING]
