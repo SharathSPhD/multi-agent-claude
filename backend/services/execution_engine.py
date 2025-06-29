@@ -32,23 +32,16 @@ class ExecutionEngine:
         # Timeout settings
         self.DEFAULT_TIMEOUT = 300  # 5 minutes
         self.MAX_TIMEOUT = 600     # 10 minutes
-    
-    def _add_log(self, execution: Execution, message: str, level: str = "info") -> None:
-        """Helper to properly add logs to execution (handles JSON field correctly)."""
-        current_logs = execution.logs or []
-        current_logs.append({
-            "timestamp": datetime.utcnow().isoformat(),
-            "message": message,
-            "level": level
-        })
-        execution.logs = current_logs
         
     def set_websocket_manager(self, websocket_manager: Any):
         """Inject WebSocket manager for real-time updates."""
         self.websocket_manager = websocket_manager
     
     async def start_task_execution(self, db: Session, request: TaskExecutionRequest) -> TaskExecutionResponse:
-        """Start executing a task with specified agents."""
+        """Start executing a task with specified agents - supports multi-agent execution."""
+        
+        print(f"🎯 Starting task execution - Task: {request.task_id[:8]}... Work Dir: {request.work_directory}")
+        print(f"📊 Current running executions: {len(self.running_executions)}")
         
         # Get task from database
         task = db.query(Task).filter(Task.id == request.task_id).first()
@@ -76,7 +69,7 @@ class ExecutionEngine:
             if busy_agents:
                 raise ValueError(f"Agents are busy: {busy_agents}. Use force_restart=true to override.")
         
-        # Create execution record
+        # Create execution record for the primary agent (working approach)
         import uuid
         execution_id = str(uuid.uuid4())
         
@@ -86,6 +79,7 @@ class ExecutionEngine:
             agent_id=agents[0].id,  # Primary agent
             status="starting",
             start_time=datetime.utcnow(),
+            work_directory=request.work_directory,
             logs=[{
                 "timestamp": datetime.utcnow().isoformat(),
                 "message": "Execution starting",
@@ -108,11 +102,13 @@ class ExecutionEngine:
         task.started_at = datetime.utcnow()
         db.commit()
         
-        # Start execution task with timeout
+        # Start execution task with timeout - use primary agent
+        print(f"🚀 Launching execution task {execution_id} for task {task.title}")
         execution_task = asyncio.create_task(
-            self._execute_with_timeout(db, execution, task, agents, request.work_directory)
+            self._execute_with_timeout(execution_id, task.id, agents[0].id, request.work_directory)
         )
         self.running_executions[execution_id] = execution_task
+        print(f"📈 Total running executions now: {len(self.running_executions)}")
         
         return TaskExecutionResponse(
             execution_id=execution_id,
@@ -122,8 +118,51 @@ class ExecutionEngine:
             started_at=execution.start_time
         )
     
-    async def _execute_with_timeout(self, db: Session, execution: Execution, task: Task, agents: List[Agent], work_dir: Optional[str] = None):
+    async def _execute_with_timeout(self, execution_id: str, task_id: str, agent_id: str, work_dir: Optional[str] = None):
         """Execute task with timeout protection."""
+        # Create new database session for this async task
+        from database import SessionLocal
+        db = SessionLocal()
+        
+        try:
+            # Get fresh objects from database
+            execution = db.query(Execution).filter(Execution.id == execution_id).first()
+            task = db.query(Task).filter(Task.id == task_id).first()
+            agent = db.query(Agent).filter(Agent.id == agent_id).first()
+            
+            if not execution or not task or not agent:
+                print(f"❌ Failed to retrieve objects: execution={execution}, task={task}, agent={agent}")
+                return
+            
+            execution.logs.append({
+                "timestamp": datetime.utcnow().isoformat(),
+                "message": f"_execute_with_timeout started for execution {execution_id[:8]}...",
+                "level": "info"
+            })
+            db.commit()
+            
+            agents = [agent]  # Convert to list for compatibility
+        
+            # Continue with existing timeout logic
+            await self._execute_timeout_logic(db, execution, task, agents, work_dir)
+            
+        except Exception as e:
+            if execution:
+                execution.logs.append({
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "message": f"Execution failed in _execute_with_timeout: {str(e)}",
+                    "level": "error"
+                })
+                execution.status = "failed"
+                execution.error_details = {"error": str(e)}
+                execution.end_time = datetime.utcnow()
+                db.commit()
+            print(f"❌ Error in _execute_with_timeout: {e}")
+        finally:
+            db.close()
+    
+    async def _execute_timeout_logic(self, db: Session, execution: Execution, task: Task, agents: List[Agent], work_dir: Optional[str] = None):
+        """Original timeout logic extracted to separate method."""
         try:
             # Determine timeout
             # Parse estimated_duration (e.g., "2 hours", "30 minutes") or use default
@@ -189,6 +228,8 @@ class ExecutionEngine:
             # Remove from running executions
             if execution.id in self.running_executions:
                 del self.running_executions[execution.id]
+                print(f"🏁 Execution {execution.id} completed and removed from running list")
+                print(f"📉 Remaining running executions: {len(self.running_executions)}")
             
             db.commit()
     
@@ -197,33 +238,27 @@ class ExecutionEngine:
         
         primary_agent = agents[0]
         
-        # Try Claude Code SDK with short timeout first
-        self._add_log(execution, f"Starting Claude SDK execution for task: {task.title}")
-        db.commit()
-        
-        try:
-            result = await self._execute_with_claude_sdk_timeout(db, execution, task, primary_agent, work_dir, timeout=60)
-            if result:
-                self._add_log(execution, f"Claude SDK execution completed successfully")
-                execution.status = "completed"
-                execution.output = result
-                execution.agent_response = result  # Store agent response for dashboard
-                task.status = TaskStatus.COMPLETED
-                task.completed_at = datetime.utcnow()
-                db.commit()
-                return
-        except Exception as e:
-            self._add_log(execution, f"Claude SDK failed: {str(e)}, using fallback", "warning")
+        if not work_dir:
+            execution.logs.append({
+                "timestamp": datetime.utcnow().isoformat(),
+                "message": f"No work directory specified - task execution cannot proceed",
+                "level": "error"
+            })
             db.commit()
+            raise ValueError("Work directory is required for task execution")
         
-        # Fallback to expert system
-        result = await self._execute_with_expert_fallback(db, execution, task, primary_agent)
-        execution.status = "completed" 
+        print(f"💼 Executing task '{task.title}' with agent '{primary_agent.name}' in directory: {work_dir}")
+        
+        # Execute with Claude CLI with 60 second timeout
+        result = await self._execute_with_claude_sdk_timeout(db, execution, task, primary_agent, work_dir, timeout=60)
+        
+        execution.status = "completed"
         execution.output = result
         task.status = TaskStatus.COMPLETED
         task.completed_at = datetime.utcnow()
+        db.commit()
     
-    async def _execute_with_claude_sdk_timeout(self, db: Session, execution: Execution, task: Task, agent: Agent, work_dir: Optional[str], timeout: int = 150):
+    async def _execute_with_claude_sdk_timeout(self, db: Session, execution: Execution, task: Task, agent: Agent, work_dir: Optional[str], timeout: int = 60):
         """Execute with Claude Code CLI with structured JSON output."""
         import subprocess
         import json
@@ -301,31 +336,30 @@ Work efficiently and provide concrete deliverables."""
         
         try:
             # Execute with timeout
-            self._add_log(execution, f"Starting Claude CLI: {' '.join(claude_cmd)}")
-            db.commit()
-            
-            process = await asyncio.wait_for(
+            result = await asyncio.wait_for(
                 asyncio.create_subprocess_exec(
                     *claude_cmd,
                     cwd=str(work_path),
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 ),
-                timeout=5  # 5 second timeout just to create the process
+                timeout=timeout
             )
             
-            self._add_log(execution, f"Claude CLI process created, waiting for completion...")
-            db.commit()
+            stdout, stderr = await result.communicate()
             
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=timeout - 10  # Reserve 10 seconds for setup
-            )
-            
-            self._add_log(execution, f"Claude CLI completed with return code: {process.returncode}")
+            execution.logs.append({
+                "timestamp": datetime.utcnow().isoformat(),
+                "message": f"Claude CLI completed with return code: {result.returncode}",
+                "level": "info"
+            })
             
             if stderr:
-                self._add_log(execution, f"Claude CLI stderr: {stderr.decode()}", "warning")
+                execution.logs.append({
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "message": f"Claude CLI stderr: {stderr.decode()}",
+                    "level": "warning"
+                })
             
             db.commit()
             
@@ -368,13 +402,6 @@ Work efficiently and provide concrete deliverables."""
             })
             db.commit()
             raise
-        
-        return {
-            "agent_response": final_response[:1000] if final_response else "Task executed via Claude Code SDK",
-            "messages_count": len(messages),
-            "work_directory": str(work_path),
-            "execution_method": "claude_sdk"
-        }
     
     async def _execute_with_expert_fallback(self, db: Session, execution: Execution, task: Task, agent: Agent):
         """Expert system fallback when Claude SDK fails."""
@@ -521,6 +548,20 @@ Work efficiently and provide concrete deliverables."""
         if not execution:
             return None
         
+        # Handle cases where output might be a list or other non-dict type
+        output = execution.output or {}
+        if isinstance(output, list):
+            # Convert list to dict format
+            output = {"messages": output}
+        elif not isinstance(output, dict):
+            # Convert other types to dict
+            output = {"data": str(output)}
+        
+        # Handle agent_response similarly
+        agent_response = execution.agent_response or {}
+        if not isinstance(agent_response, dict):
+            agent_response = {"response": str(agent_response)}
+        
         return ExecutionResponse(
             id=execution.id,
             task_id=execution.task_id,
@@ -529,43 +570,83 @@ Work efficiently and provide concrete deliverables."""
             start_time=execution.start_time,
             end_time=execution.end_time,
             logs=execution.logs or [],
-            output=execution.output or {},
-            error_details=execution.error_details or {}
+            output=output,
+            error_details=execution.error_details or {},
+            duration_seconds=str((execution.end_time - execution.start_time).total_seconds()) if execution.end_time else None,
+            memory_usage={},
+            api_calls_made=[],
+            agent_response=agent_response,
+            work_directory=execution.work_directory,
+            needs_interaction=execution.needs_interaction or False
         )
     
     def get_all_executions(self, db: Session) -> List[ExecutionResponse]:
         """Get all executions."""
         executions = db.query(Execution).all()
-        return [
-            ExecutionResponse(
-                id=execution.id,
-                task_id=execution.task_id,
-                agent_id=execution.agent_id,
-                status=execution.status,
-                start_time=execution.start_time,
-                end_time=execution.end_time,
-                logs=execution.logs or [],
-                output=execution.output or {},
-                error_details=execution.error_details or {},
-                duration_seconds=str((execution.end_time - execution.start_time).total_seconds()) if execution.end_time else None
-            )
-            for execution in executions
-        ]
+        result = []
+        
+        for execution in executions:
+            try:
+                # Handle cases where output might be a list or other non-dict type
+                output = execution.output or {}
+                if isinstance(output, list):
+                    # Convert list to dict format
+                    output = {"messages": output}
+                elif not isinstance(output, dict):
+                    # Convert other types to dict
+                    output = {"data": str(output)}
+                
+                # Handle agent_response similarly
+                agent_response = execution.agent_response or {}
+                if not isinstance(agent_response, dict):
+                    agent_response = {"response": str(agent_response)}
+                
+                result.append(ExecutionResponse(
+                    id=execution.id,
+                    task_id=execution.task_id,
+                    agent_id=execution.agent_id,
+                    status=execution.status,
+                    start_time=execution.start_time,
+                    end_time=execution.end_time,
+                    logs=execution.logs or [],
+                    output=output,
+                    error_details=execution.error_details or {},
+                    duration_seconds=str((execution.end_time - execution.start_time).total_seconds()) if execution.end_time else None,
+                    memory_usage={},
+                    api_calls_made=[],
+                    agent_response=agent_response,
+                    work_directory=execution.work_directory,
+                    needs_interaction=execution.needs_interaction or False
+                ))
+            except Exception as e:
+                print(f"Error processing execution {execution.id}: {e}")
+                # Skip problematic execution records
+                continue
+        
+        return result
     
     def get_system_status(self, db: Session) -> SystemStatus:
         """Get overall system status."""
         total_agents = db.query(Agent).count()
         active_agents = db.query(Agent).filter(Agent.status == AgentStatus.EXECUTING).count()
         total_tasks = db.query(Task).count()
+        pending_tasks = db.query(Task).filter(Task.status == TaskStatus.PENDING).count()
+        running_tasks = db.query(Task).filter(Task.status == TaskStatus.IN_PROGRESS).count()
+        completed_tasks = db.query(Task).filter(Task.status == TaskStatus.COMPLETED).count()
+        failed_tasks = db.query(Task).filter(Task.status == TaskStatus.FAILED).count()
         running_executions = len(self.running_executions)
         
         return SystemStatus(
             total_agents=total_agents,
             active_agents=active_agents,
             total_tasks=total_tasks,
-            running_executions=running_executions,
-            paused_executions=len(self.paused_executions),
-            timestamp=datetime.utcnow()
+            pending_tasks=pending_tasks,
+            running_tasks=running_tasks,
+            completed_tasks=completed_tasks,
+            failed_tasks=failed_tasks,
+            system_uptime="0h 0m",  # Placeholder - could be calculated from app start time
+            memory_usage={},
+            last_updated=datetime.utcnow()
         )
 
 # Global instance

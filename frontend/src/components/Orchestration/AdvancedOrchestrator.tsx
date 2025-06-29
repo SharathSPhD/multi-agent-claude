@@ -49,7 +49,8 @@ import {
   WorkflowExecution, 
   WorkflowAnalysis,
   AgentComm,
-  WorkflowTypes 
+  WorkflowTypes,
+  WorkflowTypeInfo
 } from '../../services/advancedOrchestration';
 
 export default function AdvancedOrchestrator() {
@@ -69,7 +70,7 @@ export default function AdvancedOrchestrator() {
     selectedAgents: [] as string[],
     selectedTasks: [] as string[],
     workflowType: '',
-    projectDirectory: '/mnt/e/Development/mcp_a2a/project_selfdevelop',
+    projectDirectory: '',
   });
 
   const [directoryValid, setDirectoryValid] = useState(false);
@@ -208,6 +209,7 @@ export default function AdvancedOrchestrator() {
         task_ids: createForm.selectedTasks,
         user_objective: createForm.objective,
         workflow_type: workflowType,
+        project_directory: createForm.projectDirectory,
       };
 
       if (editingPatternId) {
@@ -287,29 +289,47 @@ export default function AdvancedOrchestrator() {
         selectedAgents: pattern.agent_ids || [],
         selectedTasks: pattern.task_ids || [],
         workflowType: pattern.workflow_type,
-        projectDirectory: prev.projectDirectory, // Preserve user's current directory choice
+        projectDirectory: pattern.project_directory || prev.projectDirectory, // Use pattern's directory or current choice
       }));
       onAnalyzeOpen();
     }
   };
 
-  const deleteWorkflowPattern = async (patternId: string) => {
-    if (window.confirm('Are you sure you want to delete this workflow pattern? This action cannot be undone.')) {
+  const deleteWorkflowPattern = async (patternId: string, force: boolean = false) => {
+    const confirmMessage = force 
+      ? 'Are you sure you want to FORCE DELETE this workflow pattern? This will cancel all active executions. This action cannot be undone.'
+      : 'Are you sure you want to delete this workflow pattern? This action cannot be undone.';
+      
+    if (window.confirm(confirmMessage)) {
       try {
-        await advancedOrchestrationService.deleteWorkflowPattern(patternId);
+        await advancedOrchestrationService.deleteWorkflowPattern(patternId, force);
         toast({
           title: 'Workflow pattern deleted',
+          description: force ? 'Pattern deleted and active executions cancelled' : undefined,
           status: 'success',
           duration: 3000,
         });
         fetchData(); // Refresh the patterns list
       } catch (error) {
-        toast({
-          title: 'Failed to delete workflow pattern',
-          description: error instanceof Error ? error.message : 'Unknown error',
-          status: 'error',
-          duration: 3000,
-        });
+        // Handle 409 Conflict - active executions exist
+        if (error instanceof Error && error.message.includes('409')) {
+          const forceDelete = window.confirm(
+            'This workflow pattern has active executions that must be cancelled first.\n\n' +
+            'Would you like to FORCE DELETE the pattern and cancel all active executions?\n\n' +
+            'Click OK to force delete, or Cancel to abort.'
+          );
+          
+          if (forceDelete) {
+            return deleteWorkflowPattern(patternId, true); // Retry with force=true
+          }
+        } else {
+          toast({
+            title: 'Failed to delete workflow pattern',
+            description: error instanceof Error ? error.message : 'Unknown error',
+            status: 'error',
+            duration: 5000,
+          });
+        }
       }
     }
   };
@@ -664,7 +684,7 @@ export default function AdvancedOrchestrator() {
                       >
                         {Object.entries(workflowTypes).map(([type, typeInfo]) => (
                           <option key={type} value={type}>
-                            {type} - {typeInfo?.name || type}
+                            {typeInfo?.name || type}
                           </option>
                         ))}
                       </Select>

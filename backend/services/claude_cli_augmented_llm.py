@@ -36,12 +36,13 @@ class ClaudeCliAugmentedLLM(AugmentedLLM):
     our existing execution infrastructure.
     """
     
-    def __init__(self, name: str = "claude_cli_llm", config: AnthropicSettings = None, agent_id: str = None, task_id: str = None, db_session=None):
+    def __init__(self, name: str = "claude_cli_llm", config: AnthropicSettings = None, agent_id: str = None, task_id: str = None, db_session=None, work_directory: str = None):
         super().__init__(name=name)
         self.config = config or AnthropicSettings(api_key="dummy", default_model="claude-3-sonnet-20240229")
         self.agent_id = agent_id
         self.task_id = task_id
         self.db_session = db_session
+        self.work_directory = work_directory
         self.execution_engine = ExecutionEngine()
         
     async def generate(
@@ -243,7 +244,7 @@ class ClaudeCliAugmentedLLM(AugmentedLLM):
             execution_request = TaskExecutionRequest(
                 task_id=self.task_id,
                 agent_ids=[self.agent_id],
-                work_directory="/mnt/e/Development/mcp_a2a/project_selfdevelop"
+                work_directory=self.work_directory
             )
             
             # Execute via our execution engine
@@ -276,7 +277,7 @@ class ClaudeCliAugmentedLLM(AugmentedLLM):
             return f"Execution engine error: {str(e)}"
 
 
-def create_claude_cli_llm(agent_id: str = None, task_id: str = None, db_session=None, name: str = None) -> ClaudeCliAugmentedLLM:
+def create_claude_cli_llm(agent_id: str = None, task_id: str = None, db_session=None, name: str = None, work_directory: str = None) -> ClaudeCliAugmentedLLM:
     """Factory function to create Claude CLI LLM instances."""
     llm_name = name or f"claude_cli_{agent_id[:8] if agent_id else 'default'}"
     
@@ -291,5 +292,6 @@ def create_claude_cli_llm(agent_id: str = None, task_id: str = None, db_session=
         config=config,
         agent_id=agent_id, 
         task_id=task_id, 
-        db_session=db_session
+        db_session=db_session,
+        work_directory=work_directory
     )

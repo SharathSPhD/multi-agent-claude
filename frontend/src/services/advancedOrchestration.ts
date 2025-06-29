@@ -27,6 +27,7 @@ export interface WorkflowPattern {
   agent_ids: string[];
   task_ids: string[];
   user_objective: string;
+  project_directory?: string;
   status: string;
   created_at: string;
   updated_at: string;
@@ -70,8 +71,16 @@ export interface AgentComm {
   context: Record<string, any>;
 }
 
+export interface WorkflowTypeInfo {
+  name: string;
+  description: string;
+  use_cases: string[];
+  advantages: string[];
+  ideal_for: string;
+}
+
 export interface WorkflowTypes {
-  [key: string]: string;
+  [key: string]: WorkflowTypeInfo;
 }
 
 class AdvancedOrchestrationService {
@@ -98,6 +107,7 @@ class AdvancedOrchestrationService {
     task_ids: string[];
     user_objective?: string;
     workflow_type?: string;
+    project_directory?: string;
   }): Promise<WorkflowPattern> {
     const response = await fetch(`${API_BASE}/api/workflows/patterns`, {
       method: 'POST',
@@ -133,7 +143,31 @@ class AdvancedOrchestrationService {
     });
     
     if (!response.ok) throw new Error('Failed to execute workflow');
-    return response.json();
+    const data = await response.json();
+    
+    // Handle enhanced backend response format
+    if (data.success && data.data) {
+      // Transform the nested response to match WorkflowExecution interface
+      return {
+        id: data.data.execution_id,
+        pattern_id: data.data.pattern_id,
+        status: data.data.status,
+        started_at: data.data.started_at,
+        updated_at: data.data.completed_at || data.data.started_at,
+        current_step: 0,
+        total_steps: 0,
+        progress_percentage: data.data.progress_percentage || 0,
+        active_agents: [],
+        completed_tasks: [],
+        failed_tasks: [],
+        agent_communications: [],
+        step_outputs: data.data.results || {},
+        iteration_count: 0
+      };
+    }
+    
+    // Fallback for old format
+    return data;
   }
 
   async getExecutionStatus(executionId: string): Promise<WorkflowExecution> {
@@ -145,7 +179,30 @@ class AdvancedOrchestrationService {
   async getActiveExecutions(): Promise<WorkflowExecution[]> {
     const response = await fetch(`${API_BASE}/api/workflows/executions`);
     if (!response.ok) throw new Error('Failed to get active executions');
-    return response.json();
+    const data = await response.json();
+    
+    // Handle the enhanced response format from backend
+    if (data.success && data.data && data.data.executions) {
+      return data.data.executions.map((execution: any) => ({
+        id: execution.id,
+        pattern_id: execution.pattern_id,
+        status: execution.status,
+        started_at: execution.started_at,
+        updated_at: execution.completed_at || execution.started_at,
+        current_step: 0,
+        total_steps: 0,
+        progress_percentage: execution.progress_percentage || 0,
+        active_agents: [],
+        completed_tasks: [],
+        failed_tasks: [],
+        agent_communications: [],
+        step_outputs: execution.results || {},
+        iteration_count: 0
+      }));
+    }
+    
+    // Fallback for direct array format
+    return Array.isArray(data) ? data : [];
   }
 
   async getAgentCommunications(executionId: string): Promise<AgentComm[]> {
@@ -173,6 +230,7 @@ class AdvancedOrchestrationService {
     task_ids: string[];
     user_objective?: string;
     workflow_type?: string;
+    project_directory?: string;
   }): Promise<WorkflowPattern> {
     const response = await fetch(`${API_BASE}/api/workflows/patterns/${patternId}`, {
       method: 'PUT',
@@ -184,12 +242,19 @@ class AdvancedOrchestrationService {
     return response.json();
   }
 
-  async deleteWorkflowPattern(patternId: string): Promise<void> {
-    const response = await fetch(`${API_BASE}/api/workflows/patterns/${patternId}`, {
+  async deleteWorkflowPattern(patternId: string, force: boolean = false): Promise<void> {
+    const url = force 
+      ? `${API_BASE}/api/workflows/patterns/${patternId}?force=true`
+      : `${API_BASE}/api/workflows/patterns/${patternId}`;
+      
+    const response = await fetch(url, {
       method: 'DELETE',
     });
     
-    if (!response.ok) throw new Error('Failed to delete workflow pattern');
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(`${response.status}: ${errorData.error?.message || 'Failed to delete workflow pattern'}`);
+    }
   }
 
   async abortWorkflowExecution(executionId: string): Promise<void> {

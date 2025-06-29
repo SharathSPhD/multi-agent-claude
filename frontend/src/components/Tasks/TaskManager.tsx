@@ -45,7 +45,7 @@ export default function TaskManager() {
     dependencies: [],
     priority: 'medium',
     deadline: '',
-    estimated_duration: '',
+    estimated_duration: 0,
   });
   
   const { isOpen, onOpen, onClose } = useDisclosure();
@@ -80,7 +80,7 @@ export default function TaskManager() {
   };
 
   const loadTasksFromFiles = async () => {
-    const directory = '/mnt/e/Development/mcp_a2a/project_selfdevelop'; // Get from project settings
+    const directory = ''; // Will be set from project directory selection
     setLoadingFiles(true);
     
     try {
@@ -275,7 +275,7 @@ export default function TaskManager() {
       dependencies: [],
       priority: 'medium',
       deadline: '',
-      estimated_duration: '',
+      estimated_duration: 0,
     });
     setEditingTask(null);
     setIsFileMode(false);
@@ -283,16 +283,21 @@ export default function TaskManager() {
 
   const handleEdit = (task: Task) => {
     setEditingTask(task);
+    
+    // Extract agent IDs from assigned_agents array or use assigned_agent_ids if available
+    const agentIds = task.assigned_agent_ids || 
+                    (task.assigned_agents ? task.assigned_agents.map(agent => agent.id) : []);
+    
     setFormData({
       title: task.title,
       description: task.description,
-      assigned_agent_ids: task.assigned_agent_ids || [],
+      assigned_agent_ids: agentIds,
       expected_output: task.expected_output || '',
       resources: task.resources || [],
       dependencies: task.dependencies || [],
       priority: task.priority || 'medium',
       deadline: task.deadline || '',
-      estimated_duration: task.estimated_duration || '',
+      estimated_duration: task.estimated_duration || 0,
     });
     setIsFileMode(false);
     onOpen();
@@ -320,7 +325,7 @@ export default function TaskManager() {
         dependencies: taskData.dependencies || [],
         priority: taskData.priority || 'medium',
         deadline: taskData.deadline || '',
-        estimated_duration: taskData.estimated_duration || '',
+        estimated_duration: taskData.estimated_duration || 0,
       });
       
       toast({
@@ -562,9 +567,9 @@ export default function TaskManager() {
                   <FormLabel>Estimated Duration (minutes)</FormLabel>
                   <Input
                     value={formData.estimated_duration || ''}
-                    onChange={(e) => setFormData(prev => ({ ...prev, estimated_duration: e.target.value }))}
+                    onChange={(e) => setFormData(prev => ({ ...prev, estimated_duration: parseInt(e.target.value) || 0 }))}
                     placeholder="e.g., 60"
-                    type="text"
+                    type="number"
                   />
                 </FormControl>
 

@@ -12,6 +12,7 @@ import uuid
 import json
 import asyncio
 import logging
+import re
 from datetime import datetime
 
 from database import get_db, engine
@@ -49,6 +50,18 @@ try:
     cleanup_orphaned_executions()
 except Exception as e:
     print(f"⚠️  Cleanup warning: {e}")
+
+# Helper function to convert estimated_duration from database format to API format
+def parse_estimated_duration(duration_str: Optional[str]) -> Optional[int]:
+    """Convert duration string like '120 minutes' to integer 120."""
+    if not duration_str:
+        return None
+    
+    # Extract number from strings like "120 minutes", "2 hours", etc.
+    match = re.search(r'(\d+)', str(duration_str))
+    if match:
+        return int(match.group(1))
+    return None
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -215,8 +228,8 @@ class AgentManager:
 class TaskScheduler:
     """Manages task scheduling and lifecycle."""
     
-    async def create_task(self, db: Session, task_data: TaskCreate) -> Task:
-        """Create a new task."""
+    async def create_task(self, db: Session, task_data: TaskCreate) -> TaskResponse:
+        """Create a new task and return properly serialized response."""
         
         db_task = Task(
             id=str(uuid.uuid4()),
@@ -227,7 +240,7 @@ class TaskScheduler:
             dependencies=task_data.dependencies,
             priority=task_data.priority,
             deadline=task_data.deadline,
-            estimated_duration=task_data.estimated_duration,
+            estimated_duration=f"{task_data.estimated_duration} minutes" if task_data.estimated_duration is not None else None,
             status=TaskStatus.PENDING,
             results={},
             created_at=datetime.utcnow(),
@@ -243,19 +256,100 @@ class TaskScheduler:
             agents = db.query(Agent).filter(Agent.id.in_(task_data.assigned_agent_ids)).all()
             db_task.assigned_agents = agents
             db.commit()
+            db.refresh(db_task)
         
-        return db_task
+        # Convert to TaskResponse with proper estimated_duration handling
+        estimated_duration = parse_estimated_duration(db_task.estimated_duration)
+        
+        return TaskResponse(
+            id=db_task.id,
+            title=db_task.title,
+            description=db_task.description,
+            expected_output=db_task.expected_output,
+            resources=db_task.resources or [],
+            dependencies=db_task.dependencies or [],
+            priority=db_task.priority,
+            deadline=db_task.deadline,
+            estimated_duration=estimated_duration,
+            status=db_task.status,
+            results=db_task.results or {},
+            error_message=db_task.error_message,
+            created_at=db_task.created_at,
+            updated_at=db_task.updated_at,
+            started_at=db_task.started_at,
+            completed_at=db_task.completed_at,
+            assigned_agent_ids=[agent.id for agent in db_task.assigned_agents],
+            assigned_agents=[AgentResponse.from_orm(agent) for agent in db_task.assigned_agents]
+        )
     
-    async def list_tasks(self, db: Session, skip: int = 0, limit: int = 100) -> List[Task]:
-        """List all tasks."""
-        return db.query(Task).offset(skip).limit(limit).all()
+    async def list_tasks(self, db: Session, skip: int = 0, limit: int = 100) -> List[TaskResponse]:
+        """List all tasks with proper serialization."""
+        tasks = db.query(Task).offset(skip).limit(limit).all()
+        
+        # Convert to TaskResponse objects with proper estimated_duration handling
+        task_responses = []
+        for task in tasks:
+            # Convert estimated_duration from string to int
+            estimated_duration = parse_estimated_duration(task.estimated_duration)
+            
+            # Create TaskResponse with converted duration
+            task_response = TaskResponse(
+                id=task.id,
+                title=task.title,
+                description=task.description,
+                expected_output=task.expected_output,
+                resources=task.resources or [],
+                dependencies=task.dependencies or [],
+                priority=task.priority,
+                deadline=task.deadline,
+                estimated_duration=estimated_duration,
+                status=task.status,
+                results=task.results or {},
+                error_message=task.error_message,
+                created_at=task.created_at,
+                updated_at=task.updated_at,
+                started_at=task.started_at,
+                completed_at=task.completed_at,
+                assigned_agent_ids=[agent.id for agent in task.assigned_agents],
+                assigned_agents=[AgentResponse.from_orm(agent) for agent in task.assigned_agents]
+            )
+            task_responses.append(task_response)
+        
+        return task_responses
     
-    async def get_task(self, db: Session, task_id: str) -> Task:
-        """Get task by ID."""
-        return db.query(Task).filter(Task.id == task_id).first()
+    async def get_task(self, db: Session, task_id: str) -> Optional[TaskResponse]:
+        """Get task by ID with proper serialization."""
+        task = db.query(Task).filter(Task.id == task_id).first()
+        if not task:
+            return None
+            
+        # Convert estimated_duration from string to int
+        estimated_duration = parse_estimated_duration(task.estimated_duration)
+        
+        # Create TaskResponse with converted duration
+        return TaskResponse(
+            id=task.id,
+            title=task.title,
+            description=task.description,
+            expected_output=task.expected_output,
+            resources=task.resources or [],
+            dependencies=task.dependencies or [],
+            priority=task.priority,
+            deadline=task.deadline,
+            estimated_duration=estimated_duration,
+            status=task.status,
+            results=task.results or {},
+            error_message=task.error_message,
+            created_at=task.created_at,
+            updated_at=task.updated_at,
+            started_at=task.started_at,
+            completed_at=task.completed_at,
+            assigned_agent_ids=[agent.id for agent in task.assigned_agents],
+            assigned_agents=[AgentResponse.from_orm(agent) for agent in task.assigned_agents]
+        )
     
-    async def update_task(self, db: Session, task_id: str, task_update: TaskUpdate) -> Task:
-        """Update task."""
+    async def update_task(self, db: Session, task_id: str, task_update: TaskUpdate) -> TaskResponse:
+        """Update task and return properly serialized response."""
         db_task = db.query(Task).filter(Task.id == task_id).first()
         if not db_task:
             raise ValueError("Task not found")
@@ -264,6 +358,12 @@ class TaskScheduler:
         
         # Handle assigned_agent_ids separately for relationship management
         assigned_agent_ids = update_data.pop('assigned_agent_ids', None)
+        
+        # Handle estimated_duration conversion (number to string)
+        if 'estimated_duration' in update_data:
+            estimated_duration = update_data.pop('estimated_duration')
+            if estimated_duration is not None:
+                update_data['estimated_duration'] = f"{estimated_duration} minutes"
         
         # Update regular fields
         for field, value in update_data.items():
@@ -282,7 +382,30 @@ class TaskScheduler:
         db_task.updated_at = datetime.utcnow()
         db.commit()
         db.refresh(db_task)
-        return db_task
+        
+        # Convert to TaskResponse with proper estimated_duration handling
+        estimated_duration = parse_estimated_duration(db_task.estimated_duration)
+        
+        return TaskResponse(
+            id=db_task.id,
+            title=db_task.title,
+            description=db_task.description,
+            expected_output=db_task.expected_output,
+            resources=db_task.resources or [],
+            dependencies=db_task.dependencies or [],
+            priority=db_task.priority,
+            deadline=db_task.deadline,
+            estimated_duration=estimated_duration,
+            status=db_task.status,
+            results=db_task.results or {},
+            error_message=db_task.error_message,
+            created_at=db_task.created_at,
+            updated_at=db_task.updated_at,
+            started_at=db_task.started_at,
+            completed_at=db_task.completed_at,
+            assigned_agent_ids=[agent.id for agent in db_task.assigned_agents],
+            assigned_agents=[AgentResponse.from_orm(agent) for agent in db_task.assigned_agents]
+        )
     
     async def delete_task(self, db: Session, task_id: str):
         """Delete task."""
@@ -634,7 +757,7 @@ async def update_task(task_id: str, task_update: TaskUpdate, db: Session = Depen
         # Broadcast task update
         await websocket_manager.broadcast({
             "type": "task_updated",
-            "task": TaskResponse.from_orm(db_task).dict(),
+            "task": db_task.dict(),
             "timestamp": datetime.utcnow().isoformat()
         })
         
@@ -938,6 +1061,7 @@ async def create_workflow_pattern(
         task_ids = request.get("task_ids", [])
         user_objective = request.get("user_objective", "").strip()
         workflow_type = request.get("workflow_type")
+        project_directory = request.get("project_directory", "").strip()
         
         # Validate required fields
         if not name:
@@ -1008,10 +1132,11 @@ async def create_workflow_pattern(
                 id=pattern.id,
                 name=name,
                 description=description,
-                workflow_type=workflow_type or "parallel",
+                workflow_type=wf_type.value if wf_type else "parallel",
                 agent_ids=agent_ids,
                 task_ids=task_ids,
                 user_objective=user_objective,
+                project_directory=project_directory,
                 config={"pattern_data": "created_from_api", "version": "2.1"}
             )
             db.add(db_pattern)
@@ -1035,6 +1160,7 @@ async def create_workflow_pattern(
                 "agent_ids": db_pattern.agent_ids,
                 "task_ids": db_pattern.task_ids,
                 "user_objective": db_pattern.user_objective,
+                "project_directory": db_pattern.project_directory,
                 "status": db_pattern.status,
                 "created_at": db_pattern.created_at.isoformat(),
                 "agent_count": len(agents),
@@ -1128,6 +1254,7 @@ async def list_workflow_patterns(
                 "agent_ids": pattern.agent_ids or [],
                 "task_ids": pattern.task_ids or [],
                 "user_objective": pattern.user_objective,
+                "project_directory": pattern.project_directory,
                 "status": pattern.status,
                 "created_at": pattern.created_at.isoformat(),
                 "updated_at": pattern.updated_at.isoformat() if pattern.updated_at else None,
@@ -1210,6 +1337,7 @@ async def update_workflow_pattern(
         task_ids = request.get("task_ids", [])
         user_objective = request.get("user_objective", "").strip()
         workflow_type = request.get("workflow_type")
+        project_directory = request.get("project_directory", "").strip()
         
         # Validate required fields
         if not name:
@@ -1246,6 +1374,7 @@ async def update_workflow_pattern(
         pattern.agent_ids = agent_ids
         pattern.task_ids = task_ids
         pattern.user_objective = user_objective
+        pattern.project_directory = project_directory
         if workflow_type:
             pattern.workflow_type = workflow_type.lower()
         pattern.updated_at = datetime.utcnow()
@@ -1261,6 +1390,7 @@ async def update_workflow_pattern(
             "agent_ids": pattern.agent_ids,
             "task_ids": pattern.task_ids,
             "user_objective": pattern.user_objective,
+            "project_directory": pattern.project_directory,
             "status": pattern.status,
             "created_at": pattern.created_at.isoformat(),
             "updated_at": pattern.updated_at.isoformat()
@@ -1464,8 +1594,7 @@ async def execute_workflow_pattern(
             workflow_execution = WorkflowExecution(
                 pattern_id=pattern_id,
                 status="starting",
-                start_time=execution_start_time,
-                progress_percentage=0.0
+                start_time=execution_start_time
             )
             
             logger.info(f"[{execution_id}] Created WorkflowExecution object successfully")
@@ -1498,6 +1627,12 @@ async def execute_workflow_pattern(
         # Convert DB pattern to orchestrator pattern
         try:
             from services.advanced_orchestrator import WorkflowPattern as OrchestratorPattern
+            
+            # Include project_directory in config for workflow execution
+            pattern_config = db_pattern.config or {}
+            if db_pattern.project_directory:
+                pattern_config['project_directory'] = db_pattern.project_directory
+            
             orchestrator_pattern = OrchestratorPattern(
                 id=db_pattern.id,
                 name=db_pattern.name,
@@ -1505,7 +1640,8 @@ async def execute_workflow_pattern(
                 workflow_type=db_pattern.workflow_type,
                 agents=[agent.id for agent in agents],
                 tasks=[task.id for task in tasks],
-                config=db_pattern.config or {},
+                config=pattern_config,
+                project_directory=db_pattern.project_directory,
                 created_at=db_pattern.created_at,
                 updated_at=datetime.utcnow()
             )
@@ -1521,7 +1657,6 @@ async def execute_workflow_pattern(
         
         # Execute with orchestrator
         workflow_execution.status = "running"
-        workflow_execution.progress_percentage = 10.0
         db.commit()
         
         try:
@@ -1532,31 +1667,32 @@ async def execute_workflow_pattern(
             # Update execution with results (serialize datetime objects)
             workflow_execution.status = execution.status if hasattr(execution, 'status') else "completed"
             
-            # Convert execution results to JSON-serializable format
+            # Convert execution results to JSON string for Text field
             if hasattr(execution, 'dict'):
                 results_dict = execution.dict()
-                # Convert datetime objects to ISO strings for JSON serialization
+                # Convert datetime objects and enums to JSON-serializable format
                 def serialize_datetime_objects(obj):
                     if isinstance(obj, datetime):
                         return obj.isoformat()
+                    elif hasattr(obj, 'value'):  # Handle enums like WorkflowType
+                        return obj.value
                     elif isinstance(obj, dict):
                         return {k: serialize_datetime_objects(v) for k, v in obj.items()}
                     elif isinstance(obj, list):
                         return [serialize_datetime_objects(item) for item in obj]
                     return obj
                 
-                workflow_execution.results = serialize_datetime_objects(results_dict)
+                serialized_results = serialize_datetime_objects(results_dict)
+                workflow_execution.results = json.dumps(serialized_results)
             else:
-                workflow_execution.results = {}
+                workflow_execution.results = "{}"
                 
-            workflow_execution.progress_percentage = 100.0
             workflow_execution.end_time = datetime.utcnow()
             
         except Exception as exec_error:
             workflow_execution.status = "failed"
             workflow_execution.error_message = str(exec_error)
             workflow_execution.end_time = datetime.utcnow()
-            workflow_execution.progress_percentage = 0.0
             db.commit()
             
             error_id = str(uuid.uuid4())[:8]
@@ -1580,7 +1716,6 @@ async def execute_workflow_pattern(
                 "pattern_id": pattern_id,
                 "pattern_name": db_pattern.name,
                 "status": workflow_execution.status,
-                "progress_percentage": workflow_execution.progress_percentage,
                 "results": workflow_execution.results or {},
                 "execution_summary": {
                     "agents_executed": len(agents),
@@ -1676,7 +1811,12 @@ async def list_workflow_executions(
         total_executions = query.count()
         
         # Apply pagination and ordering
-        executions = query.order_by(WorkflowExecution.start_time.desc()).offset(offset).limit(limit).all()
+        try:
+            executions = query.order_by(WorkflowExecution.start_time.desc()).offset(offset).limit(limit).all()
+            print(f"Successfully fetched {len(executions)} workflow executions")
+        except Exception as e:
+            print(f"Error fetching executions: {e}")
+            raise
         
         # Enhanced execution data
         enhanced_executions = []
@@ -1702,7 +1842,6 @@ async def list_workflow_executions(
                 "id": execution.id,
                 "pattern_id": execution.pattern_id,
                 "status": execution.status,
-                "progress_percentage": execution.progress_percentage or 0.0,
                 "started_at": execution.start_time.isoformat() if execution.start_time else None,
                 "completed_at": execution.end_time.isoformat() if execution.end_time else None,
                 "duration_seconds": duration_seconds,
@@ -1721,8 +1860,17 @@ async def list_workflow_executions(
                 enhanced_execution["pattern_info"] = pattern_info
                 enhanced_execution["agent_assignments"] = getattr(execution, 'agent_assignments', []) or []
                 enhanced_execution["task_assignments"] = getattr(execution, 'task_assignments', []) or []
-                enhanced_execution["results"] = getattr(execution, 'results', {}) or {}
-                enhanced_execution["execution_context"] = getattr(execution, 'execution_context', {}) or {}
+                
+                # Parse JSON text fields safely
+                try:
+                    import json
+                    results = json.loads(execution.results or "{}")
+                    enhanced_execution["results"] = results
+                except Exception:
+                    enhanced_execution["results"] = {}
+                
+                # Handle execution_context (if it exists)
+                enhanced_execution["execution_context"] = {}
             
             enhanced_executions.append(enhanced_execution)
         

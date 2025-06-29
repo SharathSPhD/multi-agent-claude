@@ -155,7 +155,8 @@ claude_sdk_test/
 scripts/
 CLAUDE.md
 STATUS*.md
-test_api*.py
+test*.py
 project_selfdevelop/
+test_workflow_execution/
 BUGS*.md
 PROJECT*.md

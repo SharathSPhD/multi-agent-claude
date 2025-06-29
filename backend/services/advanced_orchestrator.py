@@ -47,6 +47,7 @@ class WorkflowPattern(BaseModel):
     tasks: List[str]   # Task IDs
     dependencies: Dict[str, List[str]] = {}  # Task dependencies
     config: Dict[str, Any] = {}  # Pattern-specific configuration
+    project_directory: Optional[str] = None  # Working directory for executions
     created_at: datetime
     updated_at: datetime
 
@@ -429,17 +430,17 @@ class AdvancedOrchestrator:
         try:
             # Execute based on workflow type using mcp-agent engines
             if pattern.workflow_type == WorkflowType.ORCHESTRATOR:
-                results = await self._execute_orchestrator_workflow(execution, agents, tasks, pattern.config, db)
+                results = await self._execute_orchestrator_workflow(execution, agents, tasks, pattern.config, db, pattern)
             elif pattern.workflow_type == WorkflowType.PARALLEL:
                 results = await self._execute_parallel_workflow(execution, agents, tasks, pattern.config)
             elif pattern.workflow_type == WorkflowType.ROUTER:
-                results = await self._execute_router_workflow(execution, agents, tasks, pattern.config, db)
+                results = await self._execute_router_workflow(execution, agents, tasks, pattern.config, db, pattern)
             elif pattern.workflow_type == WorkflowType.EVALUATOR_OPTIMIZER:
                 results = await self._execute_evaluator_optimizer_workflow(execution, agents, tasks, pattern.config)
             elif pattern.workflow_type == WorkflowType.SWARM:
                 results = await self._execute_swarm_workflow(execution, agents, tasks, pattern.config)
             elif pattern.workflow_type == WorkflowType.SEQUENTIAL:
-                results = await self._execute_sequential_workflow(execution, agents, tasks, pattern.config, db)
+                results = await self._execute_sequential_workflow(execution, agents, tasks, pattern.config, db, pattern)
             elif pattern.workflow_type == WorkflowType.ADAPTIVE:
                 results = await self._execute_adaptive_workflow(execution, agents, tasks, pattern.config)
             else:
@@ -465,7 +466,8 @@ class AdvancedOrchestrator:
         agents: List[Agent], 
         tasks: List[Task], 
         config: Dict[str, Any],
-        db: Session = None
+        db: Session = None,
+        pattern: Optional[WorkflowPattern] = None
     ) -> Dict[str, Any]:
         """Execute orchestrator pattern with central coordination"""
         execution.status = "running"
@@ -488,8 +490,16 @@ class AdvancedOrchestrator:
         for task in tasks:
             # Find agent assigned to this task
             task_agents = [agent for agent in agents if agent.id in [ta.id for ta in task.assigned_agents]]
+            
+            # If no specific agents assigned to task, use round-robin assignment
             if not task_agents:
-                continue
+                agent_index = tasks.index(task) % len(agents)
+                task_agents = [agents[agent_index]]
+                execution.logs.append({
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "message": f"Task {task.title} assigned to agent {agents[agent_index].name} via orchestrator round-robin",
+                    "level": "info"
+                })
                 
             agent = task_agents[0]  # Use first assigned agent
             
@@ -497,7 +507,7 @@ class AdvancedOrchestrator:
             request = TaskExecutionRequest(
                 task_id=task.id,
                 agent_ids=[agent.id],
-                work_directory=config.get('work_directory', '/mnt/e/Development/mcp_a2a/project_selfdevelop')
+                work_directory=pattern.project_directory or '/mnt/e/Development/mcp_a2a/project_selfdevelop'
             )
             
             try:
@@ -584,7 +594,8 @@ class AdvancedOrchestrator:
         agents: List[Agent], 
         tasks: List[Task], 
         config: Dict[str, Any],
-        db=None
+        db=None,
+        pattern: Optional[WorkflowPattern] = None
     ) -> Dict[str, Any]:
         """Execute router pattern with intelligent task routing"""
         execution.status = "running"
@@ -614,17 +625,71 @@ class AdvancedOrchestrator:
         # Execute intelligent routing
         routing_requests = [self._build_routing_request(task) for task in tasks]
         routing_results = []
+        execution_results = []
         
         for request in routing_requests:
             result = await self.router_engine.route_to_agent(request, top_k=2)
             routing_results.append(result)
         
-        execution.progress = 0.85
+        # After routing, execute the tasks with assigned agents
+        from services.execution_engine import ExecutionEngine
+        from schemas import TaskExecutionRequest
+        execution_engine = ExecutionEngine()
+        if self.websocket_manager:
+            execution_engine.set_websocket_manager(self.websocket_manager)
+        
+        for task in tasks:
+            # Find agent assigned to this task
+            task_agents = [agent for agent in agents if agent.id in [ta.id for ta in task.assigned_agents]]
+            if not task_agents:
+                # Distribute tasks round-robin instead of assigning all to all agents
+                agent_index = tasks.index(task) % len(agents)
+                task_agents = [agents[agent_index]]
+                execution.logs.append({
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "message": f"Task {task.title} assigned to agent {agents[agent_index].name} via round-robin",
+                    "level": "info"
+                })
+            
+            for agent in task_agents:
+                # Create execution request
+                request = TaskExecutionRequest(
+                    task_id=task.id,
+                    agent_ids=[agent.id],
+                    work_directory=pattern.project_directory or '/mnt/e/Development/mcp_a2a/project_selfdevelop'
+                )
+                
+                try:
+                    # Execute task with execution engine
+                    result = await execution_engine.start_task_execution(db, request)
+                    execution_results.append({
+                        "task_id": task.id,
+                        "agent_id": agent.id,
+                        "execution_id": result.execution_id,
+                        "status": result.status
+                    })
+                    
+                    execution.logs.append({
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "message": f"Router executed task {task.title} with agent {agent.name}",
+                        "level": "info"
+                    })
+                    
+                except Exception as e:
+                    execution.logs.append({
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "message": f"Failed to execute task {task.title} with agent {agent.name}: {str(e)}",
+                        "level": "error"
+                    })
+        
+        execution.progress = 0.95
         return {
             "routing_results": [str(r) for r in routing_results],
+            "execution_results": execution_results,
             "routing_efficiency": 0.92,
             "load_balance_score": 0.88,
-            "tasks_routed": len(tasks)
+            "tasks_routed": len(tasks),
+            "tasks_executed": len(execution_results)
         }
     
     async def _execute_evaluator_optimizer_workflow(
@@ -734,7 +799,8 @@ class AdvancedOrchestrator:
         agents: List[Agent], 
         tasks: List[Task], 
         config: Dict[str, Any],
-        db=None
+        db=None,
+        pattern: Optional[WorkflowPattern] = None
     ) -> Dict[str, Any]:
         """Execute sequential pattern with step-by-step progression"""
         execution.status = "running"

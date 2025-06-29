@@ -88,7 +88,7 @@ class TaskCreate(BaseModel):
     dependencies: List[str] = Field(default_factory=list)
     priority: TaskPriority = TaskPriority.MEDIUM
     deadline: Optional[datetime] = None
-    estimated_duration: Optional[str] = None
+    estimated_duration: Optional[int] = None  # Duration in minutes
     assigned_agent_ids: List[str] = Field(default_factory=list)
 
 
@@ -100,7 +100,7 @@ class TaskUpdate(BaseModel):
     dependencies: Optional[List[str]] = None
     priority: Optional[TaskPriority] = None
     deadline: Optional[datetime] = None
-    estimated_duration: Optional[str] = None
+    estimated_duration: Optional[int] = None  # Duration in minutes
     status: Optional[TaskStatus] = None
     assigned_agent_ids: Optional[List[str]] = None
 
@@ -114,7 +114,7 @@ class TaskResponse(BaseModel):
     dependencies: List[str]
     priority: TaskPriority
     deadline: Optional[datetime]
-    estimated_duration: Optional[str]
+    estimated_duration: Optional[int]  # Duration in minutes
     status: TaskStatus
     results: Dict[str, Any]
     error_message: Optional[str]
@@ -122,6 +122,7 @@ class TaskResponse(BaseModel):
     updated_at: datetime
     started_at: Optional[datetime]
     completed_at: Optional[datetime]
+    assigned_agent_ids: Optional[List[str]] = Field(default=None)  # Agent IDs for easy form population
     assigned_agents: List[AgentResponse]
     
     class Config:

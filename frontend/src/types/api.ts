@@ -33,7 +33,7 @@ export interface Task {
   dependencies: string[];
   priority: TaskPriority;
   deadline?: string;
-  estimated_duration?: string;
+  estimated_duration?: number; // Duration in minutes
   status: TaskStatus;
   results?: Record<string, any>;
   error_message?: string;
@@ -65,7 +65,7 @@ export interface CreateTaskData {
   dependencies?: string[];
   priority?: TaskPriority;
   deadline?: string;
-  estimated_duration?: string;
+  estimated_duration?: number; // Duration in minutes
 }
 
 export interface AgentUpdate {
@@ -91,7 +91,7 @@ export interface TaskUpdate {
   dependencies?: string[];
   priority?: TaskPriority;
   deadline?: string;
-  estimated_duration?: string;
+  estimated_duration?: number; // Duration in minutes
   status?: TaskStatus;
 }
 

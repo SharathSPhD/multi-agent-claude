@@ -73,7 +73,7 @@ export default function AgentManager() {
   };
 
   const loadAgentsFromFiles = async () => {
-    const directory = '/mnt/e/Development/mcp_a2a/project_selfdevelop'; // Get from project settings
+    const directory = ''; // Will be set from project directory selection
     setLoadingFiles(true);
     
     try {

@@ -55,6 +55,7 @@ interface Execution {
   work_directory?: string;
   needs_interaction?: boolean;
   agent_response?: Record<string, any>;
+  type?: string; // Added for workflow vs execution type distinction
 }
 
 interface WorkflowExecution {
@@ -583,7 +584,7 @@ export default function Dashboard() {
                                   Cancel
                                 </Button>
                               )}
-                              {['completed', 'failed', 'cancelled'].includes(execution.status) && (
+                              {['completed', 'failed', 'cancelled', 'aborted'].includes(execution.status) && (
                                 <Button
                                   size="xs"
                                   colorScheme="red"

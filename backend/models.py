@@ -183,6 +183,7 @@ class WorkflowPattern(Base):
     
     # Execution metadata
     user_objective = Column(Text)
+    project_directory = Column(String(500))  # Working directory for pattern execution
     status = Column(String(50), default="active")  # active, archived, deprecated
     
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -200,13 +201,12 @@ class WorkflowExecution(Base):
     # Execution tracking
     start_time = Column(DateTime, default=datetime.utcnow)
     end_time = Column(DateTime)
-    progress_percentage = Column(JSON, default=0)
     current_step = Column(String(255))
     
-    # Results and logs
-    execution_logs = Column(JSON, default=list)
-    results = Column(JSON, default=dict)
-    error_details = Column(JSON, default=dict)
+    # Results and logs as text to avoid JSON parsing issues
+    execution_logs = Column(Text, default="[]")
+    results = Column(Text, default="{}")
+    error_details = Column(Text, default="{}")
     
     # Relationships
     pattern = relationship("WorkflowPattern")

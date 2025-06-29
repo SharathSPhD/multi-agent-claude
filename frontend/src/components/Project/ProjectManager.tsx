@@ -45,7 +45,7 @@ interface LoadResults {
 }
 
 const ProjectManager: React.FC = () => {
-  const [directory, setDirectory] = useState('/mnt/e/Development/mcp_a2a/project_selfdevelop');
+  const [directory, setDirectory] = useState('');
   const [directoryInfo, setDirectoryInfo] = useState<DirectoryInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingFiles, setLoadingFiles] = useState(false);
