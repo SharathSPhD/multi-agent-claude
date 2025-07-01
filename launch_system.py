@@ -257,30 +257,58 @@ def cleanup_and_exit(backend_process, frontend_process):
     except Exception as e:
         print(f"⚠️  Database cleanup error: {e}")
     
-    # Kill any orphaned Claude CLI processes (excluding this session)
+    # Kill only Claude CLI agent processes (exclude interactive sessions)
     try:
-        # Get current process to exclude it
+        # Get current process group and session to exclude interactive sessions
         current_pid = os.getpid()
-        result = subprocess.run(['ps', 'aux'], capture_output=True, text=True)
-        claude_processes = []
+        current_pgid = os.getpgid(current_pid)
+        current_sid = os.getsid(current_pid)
+        
+        result = subprocess.run(['ps', '-eo', 'pid,pgid,sid,cmd'], capture_output=True, text=True)
+        claude_agent_processes = []
         
         for line in result.stdout.split('\n'):
-            if 'claude' in line and 'claude-code' not in line and str(current_pid) not in line:
-                parts = line.split()
-                if len(parts) > 1:
+            if 'claude' in line and line.strip():
+                parts = line.split(None, 3)  # Split into pid, pgid, sid, cmd
+                if len(parts) >= 4:
                     try:
-                        pid = int(parts[1])
-                        claude_processes.append(pid)
-                    except ValueError:
+                        pid = int(parts[0])
+                        pgid = int(parts[1]) 
+                        sid = int(parts[2])
+                        cmd = parts[3]
+                        
+                        # Skip current process
+                        if pid == current_pid:
+                            continue
+                            
+                        # Skip processes in the same session (interactive terminals)
+                        if sid == current_sid:
+                            continue
+                            
+                        # Skip processes in the same process group (related processes)
+                        if pgid == current_pgid:
+                            continue
+                            
+                        # Skip obvious interactive sessions (usually have controlling terminal)
+                        if 'claude-code' in cmd or 'pts/' in line:
+                            continue
+                            
+                        # Only target background agent processes
+                        if 'claude' in cmd and ('--work-directory' in cmd or '/tmp/' in cmd or 'project_selfdevelop' in cmd):
+                            claude_agent_processes.append(pid)
+                            
+                    except (ValueError, IndexError):
                         continue
         
-        if claude_processes:
-            print(f"🧹 Cleaning up {len(claude_processes)} orphaned Claude CLI processes...")
-            for pid in claude_processes:
+        if claude_agent_processes:
+            print(f"🧹 Cleaning up {len(claude_agent_processes)} Claude CLI agent processes...")
+            for pid in claude_agent_processes:
                 try:
                     subprocess.run(['kill', str(pid)], stderr=subprocess.DEVNULL)
                 except:
                     pass
+        else:
+            print("✅ No Claude CLI agent processes to clean up")
         
     except Exception as e:
         print(f"⚠️  Claude process cleanup: {e}")

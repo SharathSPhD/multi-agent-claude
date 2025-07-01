@@ -1,9 +1,0 @@
-This is a simple test file created for testing purposes.
-
-Current timestamp: 2025-06-28
-Working directory: /mnt/e/Development/mcp_a2a/examples/topology_visualization_workflow
-
-Test content:
-- Line 1: Hello World
-- Line 2: Testing file creation
-- Line 3: Simple test completed

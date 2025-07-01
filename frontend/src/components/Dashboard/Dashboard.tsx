@@ -516,7 +516,8 @@ export default function Dashboard() {
               {executions.map(execution => {
                 const agent = agents.find(a => a.id === execution.agent_id);
                 const task = tasks.find(t => t.id === execution.task_id);
-                const isStuck = execution.logs.length <= 1 && 
+                const isStuck = execution.status === 'running' && 
+                  execution.logs.length <= 1 && 
                   new Date(execution.start_time).getTime() < Date.now() - 5 * 60 * 1000; // 5 minutes
                 
                 return (

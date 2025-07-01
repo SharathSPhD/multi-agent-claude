@@ -160,3 +160,8 @@ project_selfdevelop/
 test_workflow_execution/
 BUGS*.md
 PROJECT*.md
+
+# Claude CLI configuration and local settings
+.claude/
+
+# Note: mcp_multiagent.db contains example workflow data and should be included
